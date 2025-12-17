@@ -1,22 +1,17 @@
-
 import { createClient } from '@supabase/supabase-js';
-import { SUPABASE_CONFIG } from '../config';
 
-const supabaseUrl = SUPABASE_CONFIG.url;
-const supabaseKey = SUPABASE_CONFIG.apiKey;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Diagnóstico detallado para el desarrollador
-if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
-    console.warn("⚠️ Advertencia: SUPABASE_URL no detectada o es un placeholder.");
+if (!supabaseUrl) {
+  throw new Error('❌ VITE_SUPABASE_URL no está definida');
 }
 
-if (!supabaseKey) {
-    console.error("❌ ERROR CRÍTICO: SUPABASE_ANON_KEY está vacía. Las peticiones a la base de datos fallarán.");
-} else {
-    console.log("✅ Supabase configurado (llave detectada)");
+if (!supabaseAnonKey) {
+  throw new Error('❌ VITE_SUPABASE_ANON_KEY no está definida');
 }
 
 export const supabase = createClient(
-    supabaseUrl || 'https://placeholder.supabase.co', 
-    supabaseKey || 'placeholder-key'
+  supabaseUrl,
+  supabaseAnonKey
 );
