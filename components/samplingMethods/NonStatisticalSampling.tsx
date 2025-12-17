@@ -119,7 +119,7 @@ const NonStatisticalSampling: React.FC<Props> = ({ appState, setAppState }) => {
                             </div>
                             <div className="text-center py-2">
                                 <span className="text-3xl font-extrabold text-purple-600">{analysis.outliersCount}</span>
-                                <p className="text-[10px] text-gray-500 uppercase font-bold mt-1">Registros > IQR</p>
+                                <p className="text-[10px] text-gray-500 uppercase font-bold mt-1">Registros &gt; IQR</p>
                             </div>
                         </div>
 
@@ -138,7 +138,7 @@ const NonStatisticalSampling: React.FC<Props> = ({ appState, setAppState }) => {
                             </div>
                         </div>
 
-                        {/* Round Numbers Card (NEW) */}
+                        {/* Round Numbers Card */}
                         <div 
                             onClick={() => handleInsightClick('RoundNumbers')}
                             className={`cursor-pointer border rounded-xl p-4 transition-all hover:shadow-lg ${params.suggestedRisk === 'RoundNumbers' ? 'border-cyan-500 bg-cyan-50 ring-2 ring-cyan-200' : 'border-gray-200 bg-white hover:border-cyan-300'}`}

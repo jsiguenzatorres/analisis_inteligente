@@ -122,7 +122,7 @@ const MonetaryUnitSampling: React.FC<Props> = ({ appState, setAppState }) => {
                         </div>
                         <div className="ml-3 text-sm">
                             <label htmlFor="optimizeTopStratum" className="font-medium text-gray-700">Optimizar Estrato Superior</label>
-                            <p className="text-gray-500">Detecta y segrega automáticamente los ítems de alto valor (> Intervalo) para auditar al 100%, reduciendo el tamaño de muestra del remanente.</p>
+                            <p className="text-gray-500">Detecta y segrega automáticamente los ítems de alto valor (&gt; Intervalo) para auditar al 100%, reduciendo el tamaño de muestra del remanente.</p>
                         </div>
                     </div>
 
