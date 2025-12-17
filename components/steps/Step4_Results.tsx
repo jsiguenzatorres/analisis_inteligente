@@ -637,7 +637,7 @@ const Step4Results: React.FC<Props> = ({ appState, onBack, onRestart }) => {
             <div className="space-y-4">
                 {renderValueBanner(criticalItems.length)}
                 <RichInfoCard type="warning" title="Definición de Criticidad">
-                    Ítems que superan el umbral de riesgo configurado (Score >= 2) o que cumplen múltiples criterios de alerta (ej. Benford + Outlier).
+                    Ítems que superan el umbral de riesgo configurado (Score mayor o igual a 2) o que cumplen múltiples criterios de alerta (ej. Benford + Outlier).
                 </RichInfoCard>
                 
                 <div className="flex justify-end">
