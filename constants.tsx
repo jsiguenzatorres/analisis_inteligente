@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { RichInfoCard } from './components/ui/RichInfoCard';
 
@@ -26,7 +25,7 @@ export const ASSISTANT_CONTENT = {
                     Necesario para determinar si aplica el "factor de corrección para poblaciones finitas" y para extrapolar los resultados de la muestra al total.
                 </RichInfoCard>
                 <RichInfoCard type="impact" title="Impacto en la Muestra (n)">
-                    Para poblaciones grandes (mayores a 5,000), el tamaño tiene un impacto despreciable. En poblaciones pequeñas, reduce el tamaño de muestra requerido.
+                    Para poblaciones grandes (superiores a 5,000), el tamaño tiene un impacto despreciable. En poblaciones pequeñas, reduce el tamaño de muestra requerido.
                 </RichInfoCard>
             </div>
         ),
@@ -83,7 +82,7 @@ export const ASSISTANT_CONTENT = {
                     Relación Directa: Cuantos más errores se esperan, mayor debe ser la muestra para confirmar que no exceden lo tolerable.
                 </RichInfoCard>
                 <RichInfoCard type="warning" title="Regla Crítica">
-                    El PE debe ser siempre menor que el ET. Si PE mayor o igual a ET, el muestreo estadístico no es viable.
+                    El PE debe ser siempre menor que el ET. Si PE es mayor o igual a ET, el muestreo estadístico no es viable.
                 </RichInfoCard>
                 <RichInfoCard type="standard" title="Rango Estándar">
                     Generalmente 0% (cero errores) o valores muy bajos (0.5% - 1.5%) para controles efectivos.
