@@ -5,12 +5,15 @@ import { SUPABASE_CONFIG } from '../config';
 const supabaseUrl = SUPABASE_CONFIG.url;
 const supabaseKey = SUPABASE_CONFIG.apiKey;
 
-// Diagnóstico detallado en consola para el desarrollador
-if (!supabaseUrl) {
-    console.error("CRITICAL: SUPABASE_URL is missing.");
+// Diagnóstico detallado para el desarrollador
+if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
+    console.warn("⚠️ Advertencia: SUPABASE_URL no detectada o es un placeholder.");
 }
+
 if (!supabaseKey) {
-    console.error("CRITICAL: SUPABASE_ANON_KEY is missing. Requests will fail with 'Invalid API key'.");
+    console.error("❌ ERROR CRÍTICO: SUPABASE_ANON_KEY está vacía. Las peticiones a la base de datos fallarán.");
+} else {
+    console.log("✅ Supabase configurado (llave detectada)");
 }
 
 export const supabase = createClient(

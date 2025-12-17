@@ -1,6 +1,7 @@
 
 import { AdvancedAnalysis, AiRecommendation, DescriptiveStats, SamplingMethod } from '../types';
 import { GoogleGenAI, Type } from "@google/genai";
+import { GEMINI_API_KEY } from '../config';
 
 /**
  * Algoritmo de Recomendación de Muestreo potenciado por Gemini
@@ -10,11 +11,10 @@ export const analyzePopulationAndRecommend = async (
     analysis: AdvancedAnalysis
 ): Promise<AiRecommendation> => {
     
-    // Leemos la API_KEY inyectada por el define de vite.config.ts
-    const apiKey = (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY;
+    const apiKey = GEMINI_API_KEY;
 
     if (!apiKey) {
-        console.warn("Gemini API_KEY no configurada. Usando recomendación local.");
+        console.warn("Gemini API_KEY no encontrada en el entorno.");
         return getLocalFallbackRecommendation(stats, analysis);
     }
 
@@ -71,7 +71,7 @@ const getLocalFallbackRecommendation = (stats: DescriptiveStats, analysis: Advan
     return {
         recommendedMethod: isAttribute ? SamplingMethod.Attribute : (stats.cv > 1.5 ? SamplingMethod.Stratified : SamplingMethod.MUS),
         confidenceScore: 70,
-        reasoning: ["Recomendación basada en reglas heurísticas locales."],
+        reasoning: ["Recomendación basada en reglas heurísticas locales (API no disponible)."],
         riskFactors: analysis.negativesCount > 0 ? ["Valores negativos detectados"] : [],
         directedSelectionAdvice: analysis.outliersCount > 0 ? "Revisar outliers manualmente." : ""
     };
