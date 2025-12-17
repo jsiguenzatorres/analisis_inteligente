@@ -21,18 +21,29 @@ const PopulationManager: React.FC<Props> = ({ onPopulationSelected, onAddNew }) 
     const fetchPopulations = async () => {
         setLoading(true);
         setError(null);
-        const { data, error } = await supabase
-            .from('audit_populations')
-            .select('*')
-            .order('created_at', { ascending: false });
+        try {
+            const { data, error: sbError } = await supabase
+                .from('audit_populations')
+                .select('*')
+                .order('created_at', { ascending: false });
 
-        if (error) {
-            console.error('Error fetching populations:', error);
-            setError('No se pudieron cargar las poblaciones. Verifique la conexión con la base de datos.');
-        } else {
-            setPopulations(data as AuditPopulation[]);
+            if (sbError) {
+                console.error('Error fetching populations:', sbError);
+                // Si el error es "relation does not exist", es que falta crear la tabla en Supabase
+                if (sbError.code === '42P01') {
+                    setError('Error: La tabla "audit_populations" no existe en la base de datos Supabase. Por favor, ejecute el script SQL de inicialización.');
+                } else {
+                    setError(`Error de Supabase: ${sbError.message} (Código: ${sbError.code}). ${sbError.hint || ''}`);
+                }
+            } else {
+                setPopulations((data as AuditPopulation[]) || []);
+            }
+        } catch (err: any) {
+            console.error('Unexpected error:', err);
+            setError(`Error inesperado: ${err.message || 'Error desconocido'}`);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const handleDelete = async (id: string, fileName: string) => {
@@ -41,21 +52,17 @@ const PopulationManager: React.FC<Props> = ({ onPopulationSelected, onAddNew }) 
         }
 
         try {
-            // Nota: Se asume que la base de datos tiene "ON DELETE CASCADE" en las filas hijas (audit_data_rows).
-            // Si no, habría que borrar las filas primero.
-            const { error } = await supabase
+            const { error: deleteError } = await supabase
                 .from('audit_populations')
                 .delete()
                 .eq('id', id);
 
-            if (error) throw error;
-
-            // Actualizar estado local eliminando el item
+            if (deleteError) throw deleteError;
             setPopulations(prev => prev.filter(p => p.id !== id));
             
         } catch (err: any) {
             console.error("Error deleting:", err);
-            alert("Error al eliminar el registro: " + err.message);
+            alert("Error al eliminar el registro: " + (err.message || "Error desconocido"));
         }
     };
 
@@ -96,9 +103,18 @@ const PopulationManager: React.FC<Props> = ({ onPopulationSelected, onAddNew }) 
                      </div>
                 )}
                 {error && (
-                    <div className="p-6 bg-red-50 rounded-lg border border-red-100 flex items-center text-red-700">
-                        <i className="fas fa-exclamation-circle text-2xl mr-4"></i>
-                        <span>{error}</span>
+                    <div className="p-6 bg-red-50 rounded-lg border border-red-200 flex items-start text-red-700 mb-4">
+                        <i className="fas fa-exclamation-circle text-2xl mr-4 mt-1"></i>
+                        <div>
+                            <p className="font-bold">Error de Conexión</p>
+                            <p className="text-sm mt-1">{error}</p>
+                            <button 
+                                onClick={fetchPopulations} 
+                                className="mt-3 text-xs font-bold uppercase tracking-widest text-red-600 hover:text-red-800 underline"
+                            >
+                                Reintentar conexión
+                            </button>
+                        </div>
                     </div>
                 )}
                 {!loading && !error && populations.length === 0 && (

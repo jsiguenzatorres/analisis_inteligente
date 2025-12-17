@@ -1,7 +1,6 @@
 
 import { AdvancedAnalysis, AiRecommendation, DescriptiveStats, SamplingMethod } from '../types';
-import { GoogleGenAI } from "@google/genai";
-import { GEMINI_CONFIG } from '../config';
+import { GoogleGenAI, Type } from "@google/genai";
 
 /**
  * Algoritmo de Recomendación de Muestreo potenciado por Gemini
@@ -11,13 +10,14 @@ export const analyzePopulationAndRecommend = async (
     analysis: AdvancedAnalysis
 ): Promise<AiRecommendation> => {
     
-    // Fallback si no hay API Key para no romper la app
-    if (!GEMINI_CONFIG.apiKey) {
+    // Check for API key directly from environment variable as required by guidelines
+    if (!process.env.API_KEY) {
         return getLocalFallbackRecommendation(stats, analysis);
     }
 
     try {
-        const ai = new GoogleGenAI({ apiKey: GEMINI_CONFIG.apiKey });
+        // Initialize Gemini client using the mandatory direct environment variable access
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         
         const prompt = `
             Como experto senior en auditoría y estadística (NIA 530), analiza estos datos y recomienda el mejor método de muestreo:
@@ -36,26 +36,48 @@ export const analyzePopulationAndRecommend = async (
             - Números Redondos: ${analysis.roundNumbersCount}
 
             MÉTODOS DISPONIBLES: 'attribute', 'mus', 'cav', 'stratified', 'non_statistical'.
-            
-            RESPONDE ÚNICAMENTE EN FORMATO JSON con esta estructura:
-            {
-              "recommendedMethod": "string",
-              "confidenceScore": number,
-              "reasoning": ["string"],
-              "riskFactors": ["string"],
-              "directedSelectionAdvice": "string"
-            }
         `;
 
+        // Using ai.models.generateContent with a recommended model and responseSchema for JSON output
         const response = await ai.models.generateContent({
-            model: GEMINI_CONFIG.model,
+            model: 'gemini-3-flash-preview',
             contents: prompt,
             config: {
-                responseMimeType: "application/json"
-            }
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        recommendedMethod: {
+                            type: Type.STRING,
+                            description: "The sampling method recommended (attribute, mus, cav, stratified, non_statistical).",
+                        },
+                        confidenceScore: {
+                            type: Type.NUMBER,
+                            description: "Confidence score for this recommendation (0-100).",
+                        },
+                        reasoning: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING },
+                            description: "Specific technical reasons for the recommendation.",
+                        },
+                        riskFactors: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING },
+                            description: "Key risk factors identified in the population.",
+                        },
+                        directedSelectionAdvice: {
+                            type: Type.STRING,
+                            description: "Advice on items requiring manual judgment or directed selection.",
+                        },
+                    },
+                    required: ["recommendedMethod", "confidenceScore", "reasoning", "riskFactors"],
+                },
+            },
         });
 
-        const result = JSON.parse(response.text || '{}');
+        // The response.text property directly returns the string output (not a function).
+        const jsonStr = response.text || '{}';
+        const result = JSON.parse(jsonStr);
         return result as AiRecommendation;
 
     } catch (error) {
