@@ -71,7 +71,8 @@ const Step3SamplingMethod: React.FC<Props> = ({ appState, setAppState, setCurren
                 
                 if (error) {
                     console.error("Error crítico recuperando filas:", error);
-                    alert(`Error conectando con la base de datos: ${error.message}`);
+                    const msg = error.message || JSON.stringify(error);
+                    alert(`Error conectando con la base de datos: ${msg}`);
                     setLoading(false);
                     return;
                 }
@@ -95,9 +96,10 @@ const Step3SamplingMethod: React.FC<Props> = ({ appState, setAppState, setCurren
             const results = calculateSampleSize(appState, realRows);
             setAppState(prev => ({...prev, results}));
             setCurrentStep(Step.Results);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Sampling error:", error);
-            alert("Ocurrió un error inesperado calculando la muestra. Revise la consola del navegador.");
+            const msg = error instanceof Error ? error.message : JSON.stringify(error);
+            alert(`Ocurrió un error inesperado calculando la muestra: ${msg}`);
         } finally {
             setLoading(false);
         }
