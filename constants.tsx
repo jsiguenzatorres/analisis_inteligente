@@ -26,7 +26,7 @@ export const ASSISTANT_CONTENT = {
                     Necesario para determinar si aplica el "factor de corrección para poblaciones finitas" y para extrapolar los resultados de la muestra al total.
                 </RichInfoCard>
                 <RichInfoCard type="impact" title="Impacto en la Muestra (n)">
-                    Para poblaciones grandes (>5,000), el tamaño tiene un impacto despreciable. En poblaciones pequeñas, reduce el tamaño de muestra requerido.
+                    Para poblaciones grandes (mayores a 5,000), el tamaño tiene un impacto despreciable. En poblaciones pequeñas, reduce el tamaño de muestra requerido.
                 </RichInfoCard>
             </div>
         ),
@@ -83,7 +83,7 @@ export const ASSISTANT_CONTENT = {
                     Relación Directa: Cuantos más errores se esperan, mayor debe ser la muestra para confirmar que no exceden lo tolerable.
                 </RichInfoCard>
                 <RichInfoCard type="warning" title="Regla Crítica">
-                    El PE debe ser siempre menor que el ET. Si PE ≥ ET, el muestreo estadístico no es viable.
+                    El PE debe ser siempre menor que el ET. Si PE mayor o igual a ET, el muestreo estadístico no es viable.
                 </RichInfoCard>
                 <RichInfoCard type="standard" title="Rango Estándar">
                     Generalmente 0% (cero errores) o valores muy bajos (0.5% - 1.5%) para controles efectivos.
@@ -128,7 +128,7 @@ export const ASSISTANT_CONTENT = {
                     Estimación del monto total de error que ya existe en la población (Anticipación).
                 </RichInfoCard>
                 <RichInfoCard type="warning" title="Advertencia de Eficiencia">
-                    Si EE es alto (>50% de TE), el método MUS se vuelve ineficiente y produce muestras excesivamente grandes. Considere CAV.
+                    Si EE es alto (superior al 50% de TE), el método MUS se vuelve ineficiente y produce muestras excesivamente grandes. Considere CAV.
                 </RichInfoCard>
             </div>
         ),
@@ -196,7 +196,7 @@ export const ASSISTANT_CONTENT = {
         content: (
              <div className="space-y-4">
                  <RichInfoCard type="definition" title="Recomendación">
-                    En CAV, la estratificación es casi obligatoria. Sin ella, la variabilidad (σ) de la población completa suele ser tan alta que la fórmula resultará en un tamaño de muestra impráctico (ej. >500).
+                    En CAV, la estratificación es casi obligatoria. Sin ella, la variabilidad (σ) de la población completa suele ser tan alta que la fórmula resultará en un tamaño de muestra impráctico (ej. superior a 500).
                 </RichInfoCard>
                 <RichInfoCard type="tip" title="¿Cuándo NO usarla?">
                     Solo si la población es extremadamente homogénea (ej. todas las transacciones son de $50.00 ± $1.00).
