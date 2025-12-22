@@ -29,7 +29,7 @@ const methods: MethodConfig[] = [
     { 
         id: SamplingMethod.MUS, 
         title: 'Unidad Monetaria (MUS)', 
-        description: 'Utilizado para pruebas sustantivas para estimar el error monetario en una población.', 
+        description: 'Utilizado para pruebas sustantivas para estimar el error monetario.', 
         icon: 'fa-dollar-sign',
         colors: {
             bg: 'bg-amber-500',
@@ -44,7 +44,7 @@ const methods: MethodConfig[] = [
     { 
         id: SamplingMethod.Stratified, 
         title: 'Muestreo Estratificado', 
-        description: 'Divide la población en subgrupos homogéneos para reducir la variabilidad y mejorar eficiencia.', 
+        description: 'Divide la población en subgrupos homogéneos para eficiencia.', 
         icon: 'fa-layer-group',
         colors: {
             bg: 'bg-indigo-600',
@@ -59,7 +59,7 @@ const methods: MethodConfig[] = [
     { 
         id: SamplingMethod.CAV, 
         title: 'Variables Clásicas (CAV)', 
-        description: 'Estima el valor monetario total. Efectivo para poblaciones con subestimaciones.', 
+        description: 'Estima el valor monetario total mediante distribución normal.', 
         icon: 'fa-calculator',
         colors: {
             bg: 'bg-orange-500',
@@ -74,7 +74,7 @@ const methods: MethodConfig[] = [
     { 
         id: SamplingMethod.NonStatistical, 
         title: 'No Estadístico / de Juicio', 
-        description: 'Para insights cualitativos, basado en la experiencia y conocimiento del auditor.', 
+        description: 'Para insights cualitativos, basado en la experiencia del auditor.', 
         icon: 'fa-user-check',
         colors: {
             bg: 'bg-teal-500',
@@ -90,8 +90,6 @@ const methods: MethodConfig[] = [
 
 const Dashboard: React.FC<Props> = ({ onMethodSelect, population, onNavigate }) => {
     const recommendation = population.ai_recommendation;
-
-    // Helper to find the method config of the recommended method
     const recommendedMethodConfig = recommendation 
         ? methods.find(m => m.id === recommendation.recommendedMethod)
         : null;
@@ -99,21 +97,24 @@ const Dashboard: React.FC<Props> = ({ onMethodSelect, population, onNavigate }) 
     return (
         <div className="animate-fade-in">
             {/* Header / Population Summary */}
-            <div className="mb-8 p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="mb-8 p-6 bg-white border border-gray-200 rounded-2xl shadow-sm hover:shadow-lg transition-all relative overflow-hidden">
+                <div className="absolute right-0 top-0 w-32 h-32 bg-blue-50 rounded-full blur-3xl opacity-50 -mr-16 -mt-16"></div>
+                <div className="flex flex-col md:flex-row justify-between items-center gap-4 relative z-10">
                     <div>
-                        <h3 className="text-lg font-bold text-gray-800">Población Activa: <span className="text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{population.file_name}</span></h3>
-                        <div className="flex flex-wrap gap-4 text-sm text-gray-600 mt-3">
-                            <span className="flex items-center"><i className="fas fa-list-ol mr-2 text-gray-400"></i><span className="font-semibold mr-1">{population.row_count.toLocaleString()}</span> Registros</span>
-                            <span className="flex items-center"><i className="fas fa-coins mr-2 text-gray-400"></i><span className="font-semibold mr-1">${population.total_monetary_value.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span> Total</span>
-                             <span className="flex items-center"><i className="fas fa-chart-line mr-2 text-gray-400"></i><span className="font-semibold mr-1">CV: {population.descriptive_stats.cv?.toFixed(2) || 'N/A'}</span></span>
+                        <h3 className="text-lg font-black text-slate-800">Población Activa: <span className="text-blue-700 bg-blue-50 px-3 py-1 rounded-lg border border-blue-100 ml-2">{population.file_name}</span></h3>
+                        <div className="flex flex-wrap gap-4 text-[11px] text-slate-500 mt-3 font-bold uppercase tracking-wider">
+                            <span className="flex items-center"><i className="fas fa-list-ol mr-2 text-blue-400"></i>{population.row_count.toLocaleString()} Registros</span>
+                            <span className="flex items-center"><i className="fas fa-coins mr-2 text-amber-400"></i>${population.total_monetary_value.toLocaleString(undefined, {minimumFractionDigits: 2})} Total</span>
                         </div>
                     </div>
                     <button 
                         onClick={() => onNavigate('population_manager')} 
-                        className="px-5 py-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-600 bg-white hover:bg-slate-50 shadow-sm transition-all hover:text-slate-800 uppercase tracking-wide"
+                        className="px-8 py-3.5 bg-slate-900 border border-slate-700 rounded-xl text-xs font-black text-white uppercase tracking-widest hover:bg-blue-800 hover:shadow-2xl transition-all transform hover:-translate-y-1 flex items-center group shadow-xl"
                     >
-                        <i className="fas fa-exchange-alt mr-2"></i>Cambiar Población
+                        <div className="bg-white/10 p-2 rounded-lg mr-3 group-hover:rotate-180 transition-transform duration-500">
+                            <i className="fas fa-exchange-alt text-cyan-400"></i>
+                        </div>
+                        Cambiar Población
                     </button>
                 </div>
             </div>
@@ -122,10 +123,7 @@ const Dashboard: React.FC<Props> = ({ onMethodSelect, population, onNavigate }) 
             {recommendation && recommendedMethodConfig && (
                 <div className="mb-10 bg-gradient-to-r from-slate-900 via-purple-900 to-slate-900 rounded-xl p-1 shadow-xl transform transition-all hover:scale-[1.01]">
                     <div className="bg-slate-900 rounded-lg p-6 relative overflow-hidden">
-                        {/* Abstract Background */}
                         <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500 rounded-full mix-blend-overlay filter blur-3xl opacity-20 animate-pulse"></div>
-                        <div className="absolute bottom-0 left-0 w-40 h-40 bg-blue-500 rounded-full mix-blend-overlay filter blur-3xl opacity-20"></div>
-
                         <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                             <div className="col-span-1 md:col-span-2">
                                 <div className="flex items-center mb-3">
@@ -145,15 +143,6 @@ const Dashboard: React.FC<Props> = ({ onMethodSelect, population, onNavigate }) 
                                         </div>
                                     ))}
                                 </div>
-                                
-                                {recommendation.directedSelectionAdvice && (
-                                    <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                                        <p className="text-xs text-amber-200 font-semibold">
-                                            <i className="fas fa-lightbulb mr-2 text-amber-400"></i>
-                                            <strong>Consejo de Selección Dirigida:</strong> {recommendation.directedSelectionAdvice}
-                                        </p>
-                                    </div>
-                                )}
                             </div>
 
                             <div className="col-span-1 flex flex-col items-center justify-center p-4 bg-white/5 rounded-xl border border-white/10 backdrop-blur-sm">
@@ -163,34 +152,20 @@ const Dashboard: React.FC<Props> = ({ onMethodSelect, population, onNavigate }) 
                                 </div>
                                 <button 
                                     onClick={() => onMethodSelect(recommendation.recommendedMethod)}
-                                    className="w-full py-3 px-4 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-lg shadow-lg shadow-purple-900/50 transition-all flex items-center justify-center group"
+                                    className="w-full py-3 px-4 bg-purple-600 hover:bg-purple-500 text-white font-black text-xs uppercase tracking-widest rounded-lg shadow-lg shadow-purple-900/50 transition-all flex items-center justify-center group"
                                 >
                                     Aplicar Recomendación
                                     <i className="fas fa-arrow-right ml-2 group-hover:translate-x-1 transition-transform"></i>
                                 </button>
-                                {recommendation.riskFactors.length > 0 && (
-                                    <div className="mt-4 flex flex-wrap justify-center gap-2">
-                                        {recommendation.riskFactors.map((risk, i) => (
-                                            <span key={i} className="text-[10px] bg-red-500/20 text-red-200 border border-red-500/30 px-2 py-0.5 rounded">
-                                                {risk}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Methods Grid */}
             <div className="mb-8">
                 <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight mb-2">Panel de Control de Muestreo</h2>
-                <p className="text-slate-500 text-lg">
-                    {recommendation 
-                        ? "O seleccione manualmente otro método si su juicio profesional lo requiere."
-                        : "Seleccione un método estadístico para iniciar su prueba de auditoría."}
-                </p>
+                <p className="text-slate-500 text-lg">Seleccione un método estadístico para iniciar su prueba de auditoría.</p>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
