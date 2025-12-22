@@ -34,43 +34,58 @@ const ClassicalVariablesSampling: React.FC<Props> = ({ appState, setAppState }) 
         }));
     };
 
+    const togglePilot = () => {
+        setAppState(prev => ({
+            ...prev,
+            samplingParams: {
+                ...prev.samplingParams,
+                cav: { ...prev.samplingParams.cav, usePilotSample: !prev.samplingParams.cav.usePilotSample }
+            }
+        }));
+    };
+
     return (
         <div className="space-y-6 animate-fade-in">
-            <div className="bg-gradient-to-r from-orange-50 to-white p-6 rounded-xl border border-orange-100 shadow-sm flex items-start mb-6">
-                 <div className="p-3 bg-gradient-to-br from-orange-500 to-amber-600 rounded-lg text-white mr-5 shadow-md">
-                    <i className="fas fa-calculator text-2xl"></i>
-                </div>
-                <div>
-                    <h3 className="text-lg font-bold text-slate-800">Variables Clásicas (CAV)</h3>
-                    <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                        Este método utiliza la distribución normal para estimar el valor total auditado. Ideal cuando se esperan errores de subestimación o valores negativos.
-                    </p>
+            {/* Banner Premium: Calibración Científica */}
+            <div className="relative group overflow-hidden bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-2xl p-6 shadow-md transition-all hover:shadow-lg">
+                <div className="absolute right-0 top-0 h-full w-24 bg-gradient-to-l from-orange-100/50 to-transparent pointer-events-none"></div>
+                <div className="absolute left-0 top-0 h-full w-1.5 bg-orange-500"></div>
+                
+                <div className="flex flex-col md:flex-row justify-between items-center gap-6 relative z-10">
+                    <div className="flex items-center gap-4">
+                        <div className="h-14 w-14 bg-white rounded-xl shadow-sm border border-orange-200 flex items-center justify-center text-orange-600">
+                            <i className="fas fa-flask text-2xl"></i>
+                        </div>
+                        <div>
+                            <h4 className="text-orange-900 font-black text-lg tracking-tight flex items-center">
+                                Calibración Científica
+                                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-600 border border-orange-200 uppercase">Cálculo de Sigma</span>
+                            </h4>
+                            <p className="text-sm text-orange-700/80 font-medium">Calcule la variabilidad real (σ) mediante una muestra representativa previa.</p>
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 bg-white/60 backdrop-blur-sm p-3 rounded-2xl border border-white shadow-inner">
+                        <span className={`text-xs font-black uppercase tracking-widest ${params.usePilotSample ? 'text-orange-600' : 'text-slate-400'}`}>
+                            Activar Piloto (n=50)
+                        </span>
+                        <button 
+                            onClick={togglePilot}
+                            className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus:outline-none ring-2 ring-offset-2 ${params.usePilotSample ? 'bg-orange-500 ring-orange-500' : 'bg-slate-300 ring-slate-200'}`}
+                        >
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-lg ${params.usePilotSample ? 'translate-x-8' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
-                {/* Desviación Estándar con Opción Piloto */}
-                <div className="relative p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-4">
-                        <label htmlFor="sigma" className="flex items-center text-sm font-bold text-gray-700">
-                            Desviación Estándar Esperada (σ)
-                            <span className="ml-2"><InfoHelper title={ASSISTANT_CONTENT.desviacionEstandar.title} content={ASSISTANT_CONTENT.desviacionEstandar.content} /></span>
-                        </label>
-                        <div className="flex items-center">
-                            <input 
-                                id="usePilotSample" 
-                                name="usePilotSample" 
-                                type="checkbox" 
-                                checked={params.usePilotSample} 
-                                onChange={handleChange} 
-                                className="w-4 h-4 text-orange-600 bg-gray-100 border-gray-300 rounded focus:ring-orange-500" 
-                            />
-                            <label htmlFor="usePilotSample" className="ml-2 text-xs font-bold text-orange-700 cursor-pointer select-none flex items-center">
-                                Calcular con Piloto
-                                <span className="ml-1"><InfoHelper title={ASSISTANT_CONTENT.muestraPiloto.title} content={ASSISTANT_CONTENT.muestraPiloto.content} /></span>
-                            </label>
-                        </div>
-                    </div>
+                {/* Desviación Estándar Input */}
+                <div className="p-6 bg-white border border-gray-200 rounded-xl shadow-sm">
+                    <label htmlFor="sigma" className="flex items-center text-sm font-bold text-gray-700 mb-4">
+                        Desviación Estándar Esperada (σ)
+                        <span className="ml-2"><InfoHelper title={ASSISTANT_CONTENT.desviacionEstandar.title} content={ASSISTANT_CONTENT.desviacionEstandar.content} /></span>
+                    </label>
                     
                     <div className="relative">
                         <input 
@@ -80,74 +95,50 @@ const ClassicalVariablesSampling: React.FC<Props> = ({ appState, setAppState }) 
                             value={params.usePilotSample ? '' : params.sigma} 
                             onChange={handleChange} 
                             disabled={params.usePilotSample}
-                            className={`block w-full px-4 py-3 rounded-lg border focus:ring-2 focus:ring-orange-500 focus:outline-none transition-all ${params.usePilotSample ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white border-gray-300'}`}
-                            placeholder={params.usePilotSample ? "Cálculo Automático..." : "Ej. 1500.00"}
+                            className={`block w-full px-4 py-3 rounded-lg border focus:ring-2 focus:ring-orange-500 transition-all ${params.usePilotSample ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white border-gray-300'}`}
+                            placeholder={params.usePilotSample ? "Calculado por Piloto..." : "Ej. 1500.00"}
                         />
-                        {params.usePilotSample && (
-                            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                                <span className="text-xs font-bold text-orange-500 bg-orange-100 px-2 py-1 rounded">AUTO</span>
-                            </div>
-                        )}
                     </div>
-                    <p className="text-xs text-gray-400 mt-2">
-                        {params.usePilotSample 
-                            ? "El sistema tomará 50 ítems aleatorios para estimar σ." 
-                            : "Ingrese un valor basado en auditorías previas."}
-                    </p>
                 </div>
 
                  {/* Técnica de Estimación */}
-                 <div className="p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                 <div className="p-6 bg-white border border-gray-200 rounded-xl shadow-sm">
                     <label htmlFor="estimationTechnique" className="flex items-center text-sm font-bold text-gray-700 mb-4">
                         Técnica de Estimación
                         <span className="ml-2"><InfoHelper title={ASSISTANT_CONTENT.tecnicaEstimacion.title} content={ASSISTANT_CONTENT.tecnicaEstimacion.content} /></span>
                     </label>
-                    <div className="relative">
-                        <select 
-                            id="estimationTechnique" 
-                            name="estimationTechnique" 
-                            value={params.estimationTechnique} 
-                            onChange={handleChange} 
-                            className="block w-full pl-4 pr-10 py-3 text-base border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 sm:text-sm rounded-lg"
-                        >
-                            <option value="Media">Media por Unidad (Mean-per-Unit)</option>
-                            <option value="Diferencia">Diferencia (Difference)</option>
-                            <option value="Tasa Combinada">Razón / Tasa (Ratio)</option>
-                            <option value="Regresión Separada">Regresión</option>
-                        </select>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-3 italic">
-                        {params.estimationTechnique === 'Media' && "Recomendado si no se esperan errores."}
-                        {params.estimationTechnique === 'Diferencia' && "Eficiente si los errores son constantes."}
-                        {params.estimationTechnique === 'Tasa Combinada' && "Mejor opción si el error es proporcional al valor."}
-                        {params.estimationTechnique === 'Regresión Separada' && "Para relaciones lineales complejas."}
-                    </p>
+                    <select 
+                        id="estimationTechnique" 
+                        name="estimationTechnique" 
+                        value={params.estimationTechnique} 
+                        onChange={handleChange} 
+                        className="block w-full pl-4 pr-10 py-3 text-base border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 sm:text-sm rounded-lg"
+                    >
+                        <option value="Media">Media por Unidad (Mean-per-Unit)</option>
+                        <option value="Diferencia">Diferencia (Difference)</option>
+                        <option value="Tasa Combinada">Razón / Tasa (Ratio)</option>
+                        <option value="Regresión Separada">Regresión</option>
+                    </select>
                 </div>
 
-                {/* Estratificación Obligatoria */}
+                {/* Estratificación */}
                 <div className="md:col-span-2">
-                    <div className={`p-4 rounded-lg border transition-all ${params.stratification ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
-                        <div className="flex items-start">
-                            <div className="flex items-center h-5 mt-1">
-                                <input 
-                                    id="stratification" 
-                                    name="stratification" 
-                                    type="checkbox" 
-                                    checked={params.stratification} 
-                                    onChange={handleChange} 
-                                    className="focus:ring-blue-500 h-5 w-5 text-blue-600 border-gray-300 rounded" 
-                                />
-                            </div>
-                            <div className="ml-3 text-sm">
+                    <div className={`p-4 rounded-xl border transition-all ${params.stratification ? 'bg-blue-50 border-blue-200 shadow-inner' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="flex items-center">
+                            <input 
+                                id="stratification" 
+                                name="stratification" 
+                                type="checkbox" 
+                                checked={params.stratification} 
+                                onChange={handleChange} 
+                                className="h-5 w-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500" 
+                            />
+                            <div className="ml-3">
                                 <label htmlFor="stratification" className="font-bold text-gray-800 flex items-center cursor-pointer">
-                                   Estratificación Obligatoria
+                                   Estratificación de Población
                                    <span className="ml-2"><InfoHelper title={ASSISTANT_CONTENT.estratificacion.title} content={ASSISTANT_CONTENT.estratificacion.content} /></span>
                                 </label>
-                                <p className={`mt-1 transition-colors ${params.stratification ? 'text-blue-800 font-medium' : 'text-gray-500'}`}>
-                                    {params.stratification 
-                                        ? "Activada: El sistema dividirá la población para reducir la varianza y optimizar el tamaño de muestra." 
-                                        : "Desactivada: Se tratará la población como un grupo homogéneo (No recomendado para CAV salvo datos muy uniformes)."}
-                                </p>
+                                <p className="text-xs text-gray-500">Altamente recomendado para CAV para optimizar eficiencia.</p>
                             </div>
                         </div>
                     </div>

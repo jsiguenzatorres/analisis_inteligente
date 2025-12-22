@@ -13,7 +13,7 @@ interface PremiumVariableCardProps {
     infoKey: keyof typeof ASSISTANT_CONTENT;
     children: React.ReactNode;
     subtitle: string;
-    currentValue?: string | number; // Added prop for passing value to modal
+    currentValue?: string | number;
 }
 
 interface DropdownOption {
@@ -87,7 +87,6 @@ const CustomGradientDropdown: React.FC<CustomDropdownProps> = ({ value, options,
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
-    // Theme Configurations
     const themes = {
         blue: {
             button: 'bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white shadow-blue-200',
@@ -115,7 +114,6 @@ const CustomGradientDropdown: React.FC<CustomDropdownProps> = ({ value, options,
     const currentTheme = themes[colorTheme];
     const selectedOption = options.find(opt => opt.value === value);
 
-    // Click Outside Handler
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -251,22 +249,40 @@ const AttributeSampling: React.FC<Props> = ({ appState, setAppState }) => {
 
     return (
         <div className="space-y-8 animate-fade-in">
-            {/* Intro Banner */}
-            <div className="bg-gradient-to-r from-slate-50 to-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-start">
-                 <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg text-white mr-5 shadow-md">
-                    <i className="fas fa-bullseye text-2xl"></i>
-                </div>
-                <div>
-                    <h3 className="text-lg font-bold text-slate-800">Muestreo de Atributos (Pruebas de Control)</h3>
-                    <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                        Este método estadístico se utiliza para estimar la tasa de desviación de un control interno prescrito. 
-                        Basado en la distribución Binomial/Hipergeométrica.
-                    </p>
+            {/* Banner Premium: Calibración Científica (Sequential Stop-or-Go) */}
+            <div className="relative group overflow-hidden bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-6 shadow-md transition-all hover:shadow-lg">
+                <div className="absolute right-0 top-0 h-full w-24 bg-gradient-to-l from-blue-100/50 to-transparent pointer-events-none"></div>
+                <div className="absolute left-0 top-0 h-full w-1.5 bg-blue-500"></div>
+                
+                <div className="flex flex-col md:flex-row justify-between items-center gap-6 relative z-10">
+                    <div className="flex items-center gap-4">
+                        <div className="h-14 w-14 bg-white rounded-xl shadow-sm border border-blue-200 flex items-center justify-center text-blue-600">
+                            <i className="fas fa-step-forward text-2xl"></i>
+                        </div>
+                        <div>
+                            <h4 className="text-blue-900 font-black text-lg tracking-tight flex items-center">
+                                Muestreo Secuencial
+                                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-600 border border-blue-200 uppercase">Stop-or-Go</span>
+                            </h4>
+                            <p className="text-sm text-blue-700/80 font-medium">Comience con una muestra pequeña (n=25). Si hay 0 errores, el proceso se detiene.</p>
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 bg-white/60 backdrop-blur-sm p-3 rounded-2xl border border-white shadow-inner">
+                        <span className={`text-xs font-black uppercase tracking-widest ${params.useSequential ? 'text-blue-600' : 'text-slate-400'}`}>
+                            Activar Secuencial
+                        </span>
+                        <button 
+                            onClick={toggleSequential}
+                            className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors focus:outline-none ring-2 ring-offset-2 ${params.useSequential ? 'bg-blue-500 ring-blue-500' : 'bg-slate-300 ring-slate-200'}`}
+                        >
+                            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-lg ${params.useSequential ? 'translate-x-8' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* Card: Población */}
                 <PremiumVariableCard 
                     title="Población (N)" 
                     subtitle="Universo Total"
@@ -283,7 +299,6 @@ const AttributeSampling: React.FC<Props> = ({ appState, setAppState }) => {
                     </div>
                 </PremiumVariableCard>
 
-                {/* Card: Nivel de Confianza (Custom Dropdown) */}
                 <PremiumVariableCard 
                     title="Nivel de Confianza (NC)" 
                     subtitle="Seguridad Estadística"
@@ -300,7 +315,6 @@ const AttributeSampling: React.FC<Props> = ({ appState, setAppState }) => {
                     />
                 </PremiumVariableCard>
 
-                {/* Card: Desviación Tolerable (Custom Dropdown) */}
                 <PremiumVariableCard 
                     title="Desviación Tolerable (ET)" 
                     subtitle="Umbral de Riesgo"
@@ -317,7 +331,6 @@ const AttributeSampling: React.FC<Props> = ({ appState, setAppState }) => {
                     />
                 </PremiumVariableCard>
 
-                {/* Card: Desviación Esperada (Custom Dropdown) */}
                 <PremiumVariableCard 
                     title="Desviación Esperada (PE)" 
                     subtitle="Anticipación de Error"
@@ -335,34 +348,6 @@ const AttributeSampling: React.FC<Props> = ({ appState, setAppState }) => {
                         />
                     </div>
                 </PremiumVariableCard>
-            </div>
-            
-            {/* Sequential Toggle */}
-            <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm flex items-center justify-between">
-                <div className="flex items-center">
-                    <div className="bg-blue-100 text-blue-600 p-2 rounded-lg mr-3">
-                        <i className="fas fa-step-forward"></i>
-                    </div>
-                    <div>
-                        <h4 className="text-sm font-bold text-gray-800">Muestreo Secuencial (Stop-or-Go)</h4>
-                        <p className="text-xs text-gray-500">Comienza con una muestra pequeña (ej. 25). Si hay 0 errores, se detiene.</p>
-                    </div>
-                </div>
-                 <div className="relative inline-block w-12 mr-2 align-middle select-none transition duration-200 ease-in">
-                    <input 
-                        type="checkbox" 
-                        name="toggle" 
-                        id="sequential-toggle" 
-                        checked={params.useSequential}
-                        onChange={toggleSequential}
-                        className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer border-gray-300 checked:right-0 checked:border-blue-600 transition-all duration-300"
-                        style={{right: params.useSequential ? '0' : 'auto', left: params.useSequential ? 'auto' : '0'}}
-                    />
-                    <label 
-                        htmlFor="sequential-toggle" 
-                        className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer transition-colors duration-300 ${params.useSequential ? 'bg-blue-600' : 'bg-gray-300'}`}
-                    ></label>
-                </div>
             </div>
 
             {(isPeCloseToEt || isPeInvalid) && (
