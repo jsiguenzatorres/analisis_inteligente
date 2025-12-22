@@ -1,38 +1,11 @@
 
-/**
- * Configuración centralizada de la aplicación.
- * Las variables son inyectadas por Vite durante el proceso de build/dev.
- */
-
-// Usamos detección redundante para asegurar compatibilidad total
-const getSupabaseUrl = (): string => {
-    try {
-        return process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://lodeqleukaoshzarebxu.supabase.co";
-    } catch (e) {
-        return "https://lodeqleukaoshzarebxu.supabase.co";
-    }
-};
-
-const getSupabaseKey = (): string => {
-    try {
-        return process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
-    } catch (e) {
-        return "";
-    }
-};
-
-const getGeminiKey = (): string => {
-    try {
-        return process.env.API_KEY || process.env.VITE_API_KEY || "";
-    } catch (e) {
-        return "";
-    }
-};
-
 export const SUPABASE_CONFIG = {
-    url: getSupabaseUrl(),
-    apiKey: getSupabaseKey(),
-    user: 'auditor_principal',
+    // IMPORTANTE: Reemplace esta URL con la URL de su proyecto Supabase.
+    url: 'https://lodeqleukaoshzarebxu.supabase.co',
+    
+    // Esta es una clave de ejemplo. Reemplace con su clave anónima (anon key) de Supabase.
+    apiKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvZGVxbGV1a2Fvc2h6YXJlYnh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU1NjE3NzQsImV4cCI6MjA4MTEzNzc3NH0.ql-JBWcxWRnnQsHoSCuBsodyVP4SuJiCWRTJxkSTNDc',
+    
+    // Usuario de base de datos dedicado y de solo lectura para auditoría.
+    user: 'auditor',
 };
-
-export const GEMINI_API_KEY = getGeminiKey();

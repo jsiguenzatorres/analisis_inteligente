@@ -14,7 +14,25 @@ export enum Step {
     Results = 'Results',
 }
 
-// Data Loading Types
+export interface ObservationEvidence {
+    nombre: string;
+    url: string;
+    tipo: string;
+}
+
+export interface AuditObservation {
+    id?: string;
+    id_poblacion: string;
+    metodo: SamplingMethod;
+    fecha_creacion?: string;
+    titulo: string;
+    descripcion: string;
+    severidad: 'Bajo' | 'Medio' | 'Alto';
+    tipo: 'Control' | 'Sustantivo' | 'Cumplimiento';
+    creado_por?: string;
+    evidencias?: ObservationEvidence[];
+}
+
 export interface ColumnMapping {
     uniqueId: string;
     monetaryValue: string;
@@ -30,15 +48,14 @@ export interface DescriptiveStats {
     sum: number;
     avg: number;
     std_dev: number;
-    cv: number; // Coefficient of Variation
+    cv: number;
 }
 
 export interface BenfordAnalysis {
     digit: number;
-    actualCount: number;
-    actualFreq: number;
     expectedFreq: number;
-    deviation: number;
+    actualFreq: number;
+    actualCount: number;
     isSuspicious: boolean;
 }
 
@@ -49,22 +66,19 @@ export interface AdvancedAnalysis {
     duplicatesCount: number;
     zerosCount: number;
     negativesCount: number;
-    roundNumbersCount: number; // NEW: Count of round numbers
+    roundNumbersCount: number;
 }
 
-// NEW: AI Recommendation Types
 export interface AiRecommendation {
     recommendedMethod: SamplingMethod;
-    confidenceScore: number; // 0 to 100
-    reasoning: string[]; // List of reasons why
-    riskFactors: string[]; // List of detected risks (High Volatility, Negatives, etc.)
-    directedSelectionAdvice?: string; // Advice for "Directed Selection"
+    confidenceScore: number;
+    reasoning: string[];
+    riskFactors: string[];
+    directedSelectionAdvice: string;
 }
 
-export type AuditStatus = 'cargando' | 'pendiente_validacion' | 'validado' | 'archivado';
-
 export interface AuditPopulation {
-    id: string; // uuid
+    id: string; 
     created_at: string;
     file_name: string;
     status: AuditStatus;
@@ -72,116 +86,55 @@ export interface AuditPopulation {
     total_monetary_value: number;
     column_mapping: ColumnMapping;
     descriptive_stats: DescriptiveStats;
-    integrity_hash?: string; // NEW: SHA-256 del archivo
-    advanced_analysis?: AdvancedAnalysis; // NEW: Insights automáticos
-    ai_recommendation?: AiRecommendation; // NEW: The Algorithm Output
-}
-
-
-export interface GeneralParams {
-    objective: string;
-    standard: 'NIA 530' | 'MIPP';
-    template: string;
-    seed: number;
-}
-
-export interface AttributeSamplingParams {
-    N: number;
-    NC: number;
-    ET: number;
-    PE: number;
-    useSequential: boolean; // NEW: Stop-or-Go
-}
-
-export interface MUSParams {
-    V: number;
-    TE: number;
-    EE: number;
-    RIA: number;
-    highValueThreshold?: number;
-    optimizeTopStratum: boolean; // NEW: Auto-detect Key Items
-    handleNegatives: 'Separate' | 'Zero' | 'Absolute'; // NEW: Tratamiento de negativos
-}
-
-export interface CAVParams {
-    sigma: number;
-    stratification: boolean;
-    estimationTechnique: 'Media' | 'Diferencia' | 'Tasa Combinada' | 'Regresión Separada';
-    usePilotSample: boolean; // NEW: Sugerencia de muestra piloto
-}
-
-export interface StratifiedParams {
-    basis: 'Monetary' | 'Category' | 'Subcategory';
-    strataCount: number;
-    allocationMethod: 'Proporcional' | 'Óptima (Neyman)' | 'Igualitaria';
-    certaintyStratumThreshold: number;
-    detectOutliers: boolean; // NEW: Auto-detect outliers
-}
-
-export interface NonStatisticalParams {
-    criteria: string;
-    justification: string;
-    suggestedRisk?: 'Benford' | 'Outliers' | 'Duplicates' | 'RoundNumbers' | 'CombinedRisk'; // NEW: Added RoundNumbers & CombinedRisk
-}
-
-export interface SamplingParams {
-    attribute: AttributeSamplingParams;
-    mus: MUSParams;
-    cav: CAVParams;
-    stratified: StratifiedParams; 
-    nonStatistical: NonStatisticalParams;
+    advanced_analysis?: AdvancedAnalysis;
+    ai_recommendation?: AiRecommendation;
 }
 
 export interface AuditSampleItem {
-    id: string | number;
+    id: string;
     value: number;
-    stratum?: number;
-    stratum_label?: string; // NEW: Nombre legible del estrato (ej. "Sucursal Norte")
-    risk_flag?: string; // NEW: Etiqueta breve (ej. "Alto Riesgo")
-    risk_factors?: string[]; // NEW: Lista detallada de factores (ej. ['Benford', 'Outlier'])
-    risk_score?: number; // NEW: Puntaje de riesgo acumulado
-    risk_justification?: string; // NEW: Explicación (ej. "Supera el intervalo de muestreo")
-}
-
-export type ObservationType = 'hallazgo' | 'asunto_menor' | 'sugerencia';
-
-export interface AuditFinding {
-    type: ObservationType;
-    condition: string; 
-    criteria: string;
-    rootCause?: string; 
-    effect?: string; 
-    recommendation: string;
-    responsible: string;
-    comments?: string;
-    dueDate: string;
-    status: 'Abierto' | 'Cerrado';
+    risk_flag?: string;
+    risk_justification?: string;
+    is_pilot_item?: boolean;
+    stratum_label?: string;
 }
 
 export interface AuditResults {
     sampleSize: number;
     sample: AuditSampleItem[];
-    totalErrorProjection?: number;
-    upperErrorLimit?: number;
-    findings: AuditFinding[];
-    methodologyNotes?: string[]; // NEW: Notas técnicas para el informe
+    totalErrorProjection: number;
+    upperErrorLimit: number;
+    findings: any[];
+    methodologyNotes: string[];
+    pilotMetrics?: any;
+    observations?: AuditObservation[];
 }
 
-export interface ConnectionParams {
-    table: string;
-    idColumn: string;
-    valueColumn: string;
-    validated: boolean;
-    user: string;
-    url: string;
-    password?: string;
+export interface HistoricalSample {
+    id: string;
+    population_id: string;
+    method: SamplingMethod;
+    created_at: string;
+    objective: string;
+    seed: number;
+    sample_size: number;
+    params_snapshot: any;
+    results_snapshot: AuditResults;
+    is_final: boolean;
+    is_current: boolean; 
 }
+
+export type AuditStatus = 'cargando' | 'pendiente_validacion' | 'validado' | 'archivado';
 
 export interface AppState {
-    connection: ConnectionParams;
+    connection: any;
     selectedPopulation: AuditPopulation | null;
-    generalParams: GeneralParams;
+    generalParams: any;
     samplingMethod: SamplingMethod;
-    samplingParams: SamplingParams;
+    samplingParams: any;
     results: AuditResults | null;
+    isLocked: boolean;
+    isCurrentVersion: boolean; 
+    historyId?: string;
+    observations?: AuditObservation[];
 }

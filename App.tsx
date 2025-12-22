@@ -19,36 +19,29 @@ const App: React.FC = () => {
     const [validationPopulationId, setValidationPopulationId] = useState<string | null>(null);
 
     const [appState, setAppState] = useState<AppState>({
-        connection: {
-            table: '',
-            idColumn: '',
-            valueColumn: '',
-            validated: false,
-            user: '',
-            url: '',
-        },
+        connection: { table: '', idColumn: '', valueColumn: '', validated: false, user: '', url: '' },
         selectedPopulation: null,
-        generalParams: {
-            objective: '',
-            standard: 'NIA 530',
-            template: 'NIA 530 Detalle',
-            seed: Math.floor(Math.random() * 100000),
-        },
+        generalParams: { objective: '', standard: 'NIA 530', template: 'NIA 530 Detalle', seed: Math.floor(Math.random() * 100000) },
         samplingMethod: SamplingMethod.Attribute,
         samplingParams: {
             attribute: { N: 0, NC: 95, ET: 5, PE: 1, useSequential: false },
-            mus: { V: 0, TE: 50000, EE: 5000, RIA: 5, highValueThreshold: 0, optimizeTopStratum: true, handleNegatives: 'Separate' },
+            mus: { V: 0, TE: 50000, EE: 500, RIA: 5, optimizeTopStratum: true, handleNegatives: 'Separate', usePilotSample: false },
             cav: { sigma: 0, stratification: true, estimationTechnique: 'Media', usePilotSample: false },
-            stratified: { basis: 'Monetary', strataCount: 3, allocationMethod: 'Óptima (Neyman)', certaintyStratumThreshold: 10000, detectOutliers: false },
+            stratified: { basis: 'Monetary', strataCount: 3, allocationMethod: 'Óptima (Neyman)', certaintyStratumThreshold: 10000, detectOutliers: false, usePilotSample: false },
             nonStatistical: { criteria: '', justification: '' },
         },
         results: null,
+        isLocked: false,
+        isCurrentVersion: false
     });
 
     const handlePopulationSelected = (population: AuditPopulation) => {
         setAppState(prev => ({
             ...prev,
             selectedPopulation: population,
+            isLocked: false,
+            isCurrentVersion: false,
+            results: null,
             samplingParams: {
                 ...prev.samplingParams,
                 attribute: { ...prev.samplingParams.attribute, N: population.row_count },
@@ -70,14 +63,14 @@ const App: React.FC = () => {
     };
 
     const handleMethodSelect = (method: SamplingMethod) => {
-        setAppState(prev => ({ ...prev, samplingMethod: method, results: null }));
+        setAppState(prev => ({ ...prev, samplingMethod: method, results: null, isLocked: false, isCurrentVersion: false }));
         setCurrentMethod(method);
         setView('sampling_config');
     };
     
     const navigateTo = (targetView: AppView) => {
         if (targetView === 'population_manager') {
-            setAppState(prev => ({...prev, selectedPopulation: null, results: null}));
+            setAppState(prev => ({...prev, selectedPopulation: null, results: null, isLocked: false, isCurrentVersion: false}));
             setActivePopulation(null);
             setCurrentMethod(null);
         }
