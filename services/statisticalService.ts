@@ -1,7 +1,7 @@
 
 import { AppState, AuditResults, SamplingMethod, AuditSampleItem } from '../types';
 
-// Helper local para generar ítems (SINTÉTICO vs REAL)
+// Helper local para generar ítems
 const selectItems = (
     count: number, 
     seed: number, 
@@ -9,35 +9,27 @@ const selectItems = (
     logicCallback: (i: number, row?: any) => Partial<AuditSampleItem>
 ): AuditSampleItem[] => {
     
-    // Si hay datos reales, usamos un generador congruencial lineal simple para seleccionar índices
-    // basado en la semilla, garantizando reproducibilidad.
     const hasRealData = realRows && realRows.length > 0;
     const selectedItems: AuditSampleItem[] = [];
     
-    // Simple seeded random generator
     let currentSeed = seed;
     const nextRandom = () => {
         currentSeed = (currentSeed * 9301 + 49297) % 233280;
         return currentSeed / 233280;
     };
 
-    // Crear un pool de índices disponibles para no repetir si es posible (sin reemplazo para poblaciones pequeñas)
     let availableIndices = hasRealData ? Array.from({ length: realRows.length }, (_, k) => k) : [];
 
     for (let i = 0; i < count; i++) {
         let item: AuditSampleItem;
 
         if (hasRealData) {
-            // Selección sobre datos reales
             if (availableIndices.length === 0) {
-                // Si se acaba la población (muestra > población), reiniciamos (con reemplazo)
                 availableIndices = Array.from({ length: realRows.length }, (_, k) => k);
             }
             
             const randIndex = Math.floor(nextRandom() * availableIndices.length);
             const selectedDataIndex = availableIndices[randIndex];
-            
-            // Remover índice seleccionado para evitar duplicados exactos en muestras pequeñas
             availableIndices.splice(randIndex, 1);
 
             const row = realRows[selectedDataIndex];
@@ -49,7 +41,6 @@ const selectItems = (
             };
 
         } else {
-            // Fallback Sintético (Legacy / Demo)
             const currentIdx = i + 1;
             item = {
                 id: `TRANS-${seed + currentIdx}`,
@@ -67,355 +58,176 @@ const formatMoney = (amount: number) => {
     return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-// --- NEW: Dynamic Stop-or-Go Calculation ---
 export const calculateStopOrGoExpansion = (
-    currentSize: number, 
-    errorsFound: number, 
-    NC: number, 
+    currentSize: number,
+    errorsFound: number,
+    NC: number,
     ET: number
-): { recommendedExpansion: number; justification: string; newTotal: number } => {
+): { recommendedExpansion: number; justification: string; newTotal: number; formula: string } => {
+    const formula = "n = (Factor_Confianza × 100) / (Error_Tolerable - Error_Previsto)";
     
-    const reliabilityFactors: {[key: number]: number} = {
-        0: NC >= 95 ? 3.00 : 2.31,
-        1: NC >= 95 ? 4.75 : 3.89,
-        2: NC >= 95 ? 6.30 : 5.33,
-        3: NC >= 95 ? 7.76 : 6.69,
-        4: NC >= 95 ? 9.16 : 8.00,
-        5: NC >= 95 ? 10.52 : 9.28
-    };
-
-    const factor = reliabilityFactors[errorsFound] || (3.0 + (errorsFound * 1.5));
-    const targetSize = Math.ceil(factor / (ET / 100));
-    
-    let expansion = targetSize - currentSize;
-    if (expansion <= 0) expansion = 0;
-
-    let justification = "";
-    if (expansion > 0) {
-        justification = `Para compensar ${errorsFound} error(es) y mantener un NC del ${NC}% con un ET del ${ET}%, el factor de confiabilidad sube a ${factor}. Esto requiere un tamaño total de ${targetSize} ítems.`;
-    } else {
-        justification = `A pesar de los errores, el tamaño actual (${currentSize}) es estadísticamente suficiente para soportar la tasa de error observada (aunque el riesgo es alto).`;
+    if (errorsFound === 0) {
+        return { 
+            recommendedExpansion: 0, 
+            justification: "No se detectaron desviaciones. El procedimiento Stop-or-Go permite concluir sin ampliar la muestra.", 
+            newTotal: currentSize,
+            formula
+        };
     }
+
+    const rFactor = NC >= 95 ? 3.0 : 2.31;
+    const fullSampleSize = Math.ceil((rFactor * 100) / ET);
+    const expansion = Math.max(0, fullSampleSize - currentSize);
 
     return {
         recommendedExpansion: expansion,
-        justification,
-        newTotal: currentSize + expansion
+        justification: `Se detectaron ${errorsFound} desviaciones. Se requiere ampliar la muestra a ${fullSampleSize} registros para validar el control con un NC del ${NC}%.`,
+        newTotal: fullSampleSize,
+        formula
     };
 };
 
-export const expandAuditSample = (currentResults: AuditResults, additionalSize: number, seed: number, realRows: any[] = []): AuditResults => {
-    const currentCount = currentResults.sample.length;
+export const calculateVariableExpansion = (
+    appState: AppState,
+    currentResults: AuditResults,
+    errorsFound: number,
+    totalPilotValue: number
+): { recommendedExpansion: number; justification: string; newTotal: number; formula: string } => {
     
-    const newItems = selectItems(additionalSize, seed + 999, realRows, (i) => {
-        return {
-            risk_flag: "Muestra Extendida",
-            risk_justification: "Ítem añadido por procedimiento secuencial (Stop-or-Go) tras detección de desviación."
-        };
-    });
+    const { samplingMethod, samplingParams } = appState;
+    let newTotal = currentResults.sampleSize;
+    let justification = "";
+    let formula = "n = (N × Z² × σ²) / E²";
+
+    if (samplingMethod === SamplingMethod.MUS) {
+        formula = "n = (V × Factor_Confianza) / (Error_Tolerable - (Error_Esperado × Factor_Ajuste))";
+        const mus = samplingParams.mus;
+        const confidenceFactor = mus.RIA <= 5 ? 3.0 : 2.31;
+        
+        const samplingInterval = mus.TE / (confidenceFactor + (errorsFound * 0.5)); 
+        newTotal = Math.ceil(mus.V / samplingInterval);
+        
+        if (errorsFound === 0) {
+            justification = `Fase Piloto Exitosa (0 errores). Para cubrir estadísticamente el universo de $${formatMoney(mus.V)} con la materialidad definida, se debe completar la muestra hasta un total de ${newTotal} registros.`;
+        } else {
+            justification = `Se detectaron ${errorsFound} hallazgos. Por principio de prudencia NIA 530, el tamaño de muestra se incrementa a ${newTotal} para compensar el riesgo de error proyectado.`;
+        }
+    } 
+    else if (samplingMethod === SamplingMethod.CAV) {
+        const cav = samplingParams.cav;
+        const pilotSigma = currentResults.pilotMetrics?.calibratedSigma || cav.sigma;
+        const N = appState.selectedPopulation?.row_count || 1000;
+        const Z = 1.96;
+        const TE = (appState.samplingParams.mus?.TE) || (pilotSigma * 5);
+        
+        const adjustmentFactor = 1 + (errorsFound * 0.2); 
+        newTotal = Math.ceil(Math.pow((N * Z * pilotSigma * adjustmentFactor) / TE, 2));
+        
+        justification = errorsFound === 0 
+            ? `Calibración Sigma completada. El tamaño de muestra definitivo para este universo es de ${newTotal} registros.`
+            : `Debido a la variabilidad y hallazgos en el piloto, se requiere un total de ${newTotal} registros para cumplir con la precisión deseada.`;
+    }
+
+    const expansion = Math.max(0, newTotal - currentResults.sampleSize);
+    return { recommendedExpansion: expansion, justification, newTotal, formula };
+};
+
+export const expandAuditSample = (
+    currentResults: AuditResults, 
+    additionalSize: number, 
+    seed: number, 
+    realRows: any[] = []
+): AuditResults => {
+    const newItems = selectItems(additionalSize, seed + 888, realRows, () => ({
+        risk_flag: "Ampliación Técnica",
+        risk_justification: "Registro seleccionado para completar el tamaño representativo de la población."
+    }));
 
     return {
         ...currentResults,
         sampleSize: currentResults.sampleSize + additionalSize,
         sample: [...currentResults.sample, ...newItems],
-        methodologyNotes: [...(currentResults.methodologyNotes || []), `Muestra ampliada en ${additionalSize} ítems por detección de desviaciones.`]
+        methodologyNotes: [...(currentResults.methodologyNotes || []), `Muestra completada con ${additionalSize} ítems adicionales para alcanzar representatividad estadística.`]
     };
 };
 
-// --- Helper for Combined Risk Scoring ---
-const calculateRiskScore = (row: any, stats: any): { score: number, flags: string[] } => {
-    const val = row.monetary_value_col;
-    if (!val) return { score: 0, flags: [] };
-    
-    const flags: string[] = [];
-    let score = 0;
-
-    // 1. Outlier Check (Simple IQR approx or Mean + 2SD for speed if stats available)
-    if (stats && stats.max > 0) {
-        // Assume outlier if > Mean + 2*StdDev (roughly top 5%)
-        const threshold = stats.avg + (2 * stats.std_dev);
-        if (Math.abs(val) > threshold) {
-            score += 2; // Higher weight for outliers
-            flags.push('Outlier');
-        }
-    }
-
-    // 2. Benford Check (First Digit)
-    const firstDigit = parseInt(Math.abs(val).toString().charAt(0));
-    // Flag 7, 8, 9 as slightly suspicious for scoring purposes (simplified Benford)
-    if ([7, 8, 9].includes(firstDigit)) {
-         score += 0.5;
-         // Don't add flag text to avoid noise unless it's the only thing, or handle in main loop
-    }
-
-    // 3. Round Numbers
-    const absV = Math.abs(val);
-    if (absV > 100 && absV % 100 === 0) {
-        score += 1;
-        flags.push('Redondeo');
-    }
-    if (absV > 1000 && absV % 1000 === 0) {
-        score += 1; // Extra point for 000
-    }
-
-    return { score, flags };
-};
-
-
-// Se añade argumento opcional 'realRows'
 export const calculateSampleSize = (appState: AppState, realRows: any[] = []): AuditResults => {
     const { samplingMethod, samplingParams } = appState;
     let sampleSize = 0;
-    let totalErrorProjection: number | undefined;
-    let upperErrorLimit: number | undefined;
     const methodologyNotes: string[] = [];
-
-    // Common Variables
     const seed = appState.generalParams.seed;
     let sample: AuditSampleItem[] = [];
+    let pilotMetrics: any = null;
 
     switch (samplingMethod) {
         case SamplingMethod.Attribute:
-            // ... (Attribute Logic - Existing) ...
-            const { NC, ET, PE, useSequential } = samplingParams.attribute;
-            let rFactor = 2.31;
-            if (NC >= 99) rFactor = 4.61;
-            else if (NC >= 98) rFactor = 3.91;
-            else if (NC >= 95) rFactor = 3.00;
-            else if (NC >= 92) rFactor = 2.53;
-
-            if (PE >= ET) {
-                sampleSize = 0; 
-                methodologyNotes.push("Error: PE mayor o igual a ET. Muestra imposible.");
+            const attr = samplingParams.attribute;
+            if (attr.useSequential) {
+                sampleSize = 25; 
+                methodologyNotes.push("Iniciado procedimiento Stop-or-Go (n=25).");
+                sample = selectItems(sampleSize, seed, realRows, () => ({ is_pilot_item: true, risk_flag: "Fase Piloto" }));
+                pilotMetrics = { type: 'ATTR_PILOT', phase: 'PILOT_ONLY', initialSize: 25 };
             } else {
-                 if (useSequential) {
-                     const rawSize = (rFactor * 100) / ET;
-                     sampleSize = Math.ceil(rawSize);
-                     if (sampleSize < 25) sampleSize = 25;
-                     methodologyNotes.push("Se utilizó Muestreo Secuencial (Stop-or-Go). Etapa 1.");
-                 } else {
-                     sampleSize = Math.ceil((rFactor * 100) / (ET - PE));
-                     methodologyNotes.push(`Cálculo estándar Binomial (NC=${NC}%, ET=${ET}%, PE=${PE}%).`);
-                 }
+                const rFactorAttr = attr.NC >= 95 ? 3.00 : 2.31;
+                sampleSize = Math.ceil((rFactorAttr * 100) / (attr.ET - attr.PE));
+                sample = selectItems(sampleSize, seed, realRows, () => ({}));
             }
-            sample = selectItems(sampleSize, seed, realRows, (i, row) => ({}));
             break;
 
         case SamplingMethod.MUS:
-            // ... (MUS Logic - Existing) ...
-            const { V, TE, RIA, optimizeTopStratum } = samplingParams.mus;
-            const confidenceFactorMUS = RIA <= 5 ? 3.0 : 2.31; 
-            let samplingInterval = TE / confidenceFactorMUS;
-            
-            let topStratumCount = 0;
-            if (optimizeTopStratum) {
-                const estimatedTopItems = Math.floor(V * 0.05 / samplingInterval); 
-                topStratumCount = estimatedTopItems;
-                const remainingValue = V * 0.95;
-                const calculatedSample = Math.ceil(remainingValue / samplingInterval);
-                sampleSize = calculatedSample + estimatedTopItems;
-                methodologyNotes.push(`Optimización de Estrato Superior activa.`);
+            const mus = samplingParams.mus;
+            if (mus.usePilotSample) {
+                sampleSize = 30; 
+                methodologyNotes.push("Fase 1: Muestra Piloto iniciada para calibración de parámetros monetarios.");
+                sample = selectItems(sampleSize, seed, realRows, () => ({ 
+                    is_pilot_item: true, 
+                    risk_flag: "Fase Piloto",
+                    risk_justification: "Registro de calibración inicial." 
+                }));
+                pilotMetrics = { type: 'MUS_PILOT', initialEE: mus.EE, phase: 'PILOT_ONLY', initialSize: 30 };
             } else {
-                sampleSize = Math.ceil(V / samplingInterval);
-                methodologyNotes.push(`Muestreo MUS estándar.`);
+                const confidenceFactorMUS = mus.RIA <= 5 ? 3.0 : 2.31; 
+                const samplingInterval = mus.TE / confidenceFactorMUS;
+                sampleSize = Math.ceil(mus.V / samplingInterval);
+                sample = selectItems(sampleSize, seed, realRows, () => ({}));
             }
-
-            sample = selectItems(sampleSize, seed, realRows, (i, row) => {
-                const val = row ? row.monetary_value_col : (Math.floor(Math.random() * samplingInterval));
-                if (optimizeTopStratum && i < topStratumCount) {
-                     return {
-                        value: val > 0 ? val : samplingInterval + 100, 
-                        risk_flag: "Elemento Clave",
-                        risk_justification: `Valor > Intervalo ($${formatMoney(samplingInterval)}).`
-                    };
-                }
-                return {};
-            });
-            totalErrorProjection = Math.random() * TE * 0.5;
-            upperErrorLimit = totalErrorProjection * 1.5;
             break;
 
         case SamplingMethod.CAV:
-            // ... (CAV Logic - Existing) ...
-            const { sigma, usePilotSample } = samplingParams.cav;
-            let finalSigma = sigma;
-            
-            if (usePilotSample && realRows.length > 0) {
-                const pilotSample = selectItems(50, seed + 777, realRows, () => ({}));
-                const values = pilotSample.map(i => i.value);
-                const mean = values.reduce((a, b) => a + b, 0) / values.length;
-                const sqDiffs = values.map(v => Math.pow(v - mean, 2));
-                const avgSqDiff = sqDiffs.reduce((a, b) => a + b, 0) / values.length;
-                finalSigma = Math.sqrt(avgSqDiff);
-                methodologyNotes.push(`Muestra Piloto (n=50). Sigma estimada: $${formatMoney(finalSigma)}.`);
-            }
-
-            const N_CAV = realRows.length > 0 ? realRows.length : 1000;
-            const Z = 1.96;
-            const estimatedTE = (appState.samplingParams.mus.TE || 50000);
-            const rawN = Math.pow((N_CAV * Z * finalSigma) / estimatedTE, 2);
-            sampleSize = Math.ceil(rawN);
-            if (sampleSize > 200) sampleSize = 200; 
-            if (sampleSize < 30) sampleSize = 30;
-
-            totalErrorProjection = Math.random() * estimatedTE * 0.4; 
-            upperErrorLimit = totalErrorProjection * 1.6;
-            methodologyNotes.push(`Cálculo media normal. Sigma: $${formatMoney(finalSigma)}.`);
-
-            sample = selectItems(sampleSize, seed, realRows, (i, row) => {
-                 const val = row ? row.monetary_value_col : 0;
-                 if (val > (finalSigma * 3)) {
-                     return { risk_flag: "Desviación Significativa", risk_justification: "> 3σ media." };
-                 }
-                 return {};
-            });
-            break;
-
-        case SamplingMethod.Stratified:
-            // ... (Stratified Logic - Existing) ...
-            const { basis, strataCount, allocationMethod } = samplingParams.stratified;
-            // (Keeping existing logic for brevity, assuming it's the same as before)
-            sampleSize = 30 * strataCount; 
-            if (realRows.length > 0) {
-                 const sampleData = selectItems(sampleSize, seed, realRows, () => ({risk_flag: 'Estratificado'}));
-                 sample = sampleData;
-            }
-            methodologyNotes.push(`Estratificación (${basis}): ${strataCount} grupos.`);
-            break;
-
-        case SamplingMethod.NonStatistical:
-            const { suggestedRisk } = samplingParams.nonStatistical;
-            
-            if (suggestedRisk === 'CombinedRisk') {
-                // --- LOGICA DE RIESGO COMBINADO ---
-                if (realRows.length > 0) {
-                    const stats = appState.selectedPopulation?.descriptive_stats;
-                    
-                    // 1. Detect Duplicates first (Set approach)
-                    const seenValues = new Map();
-                    realRows.forEach((r, idx) => {
-                        const val = r.monetary_value_col;
-                        if (!seenValues.has(val)) seenValues.set(val, []);
-                        seenValues.get(val).push(idx);
-                    });
-
-                    // 2. Score Every Row
-                    const scoredRows = realRows.map((row, idx) => {
-                        const { score, flags } = calculateRiskScore(row, stats);
-                        let finalScore = score;
-                        const finalFlags = [...flags];
-
-                        // Check duplicate
-                        if (seenValues.get(row.monetary_value_col).length > 1) {
-                            finalScore += 1;
-                            // Only flag as duplicate if not 0 (zeros are common)
-                            if (row.monetary_value_col !== 0) finalFlags.push('Duplicado');
-                        }
-
-                        // Check Benford (Detailed)
-                        const firstDigit = parseInt(Math.abs(row.monetary_value_col).toString().charAt(0));
-                        // Flag 7,8,9 as suspicious for Benford broadly in scoring
-                        if ([7,8,9].includes(firstDigit)) {
-                             // Weak indicator, only add 0.5 score
-                             finalScore += 0.5;
-                             // Don't add flag text to avoid noise unless it's the only thing
-                        }
-
-                        return { ...row, riskScore: finalScore, riskFlags: finalFlags };
-                    });
-
-                    // 3. Sort by Risk Score Descending
-                    scoredRows.sort((a, b) => b.riskScore - a.riskScore);
-
-                    // 4. Select Sample (Top N)
-                    // Target: between 30 and 60, depending on high risk volume
-                    const highRiskCount = scoredRows.filter(r => r.riskScore >= 2).length;
-                    sampleSize = Math.max(30, Math.min(highRiskCount, 60)); // Intelligent sizing
-
-                    const selectedData = scoredRows.slice(0, sampleSize);
-
-                    sample = selectedData.map(row => ({
-                        id: row.unique_id_col,
-                        value: row.monetary_value_col,
-                        risk_flag: row.riskScore >= 3 ? 'Riesgo Crítico' : (row.riskScore >= 2 ? 'Riesgo Alto' : 'Riesgo Medio'),
-                        risk_score: row.riskScore,
-                        risk_factors: row.riskFlags.length > 0 ? row.riskFlags : ['Juicio del Auditor'],
-                        risk_justification: `Score: ${row.riskScore}. Factores: ${row.riskFlags.join(', ') || 'N/A'}`
-                    }));
-
-                    methodologyNotes.push(`Risk Scoring Multivariable aplicado.`);
-                    methodologyNotes.push(`Se analizaron ${realRows.length} registros. Se seleccionaron los ${sampleSize} con mayor puntaje acumulado.`);
-                    methodologyNotes.push(`Factores evaluados: Outliers, Redondeo, Duplicados, Patrones Numéricos.`);
-
-                } else {
-                    // Fallback Sintético
-                    sampleSize = 40;
-                    sample = selectItems(sampleSize, seed, [], () => ({ risk_flag: 'Simulado', risk_justification: 'Sin datos reales para scoring.' }));
-                }
-
-            } else {
-                // --- LOGICA SIMPLE (Benford, Outliers, etc.) ---
-                sampleSize = 25;
-                let riskLabel = "Juicio Profesional";
-                let riskReason = "Selección aleatoria basada en criterio del auditor.";
-                let factors: string[] = [];
-
-                if (suggestedRisk === 'Benford') {
-                    sampleSize = 40;
-                    riskLabel = "Anomalía Benford";
-                    riskReason = "Primer dígito difiere significativamente de la distribución esperada.";
-                    factors = ['Benford'];
-                } else if (suggestedRisk === 'Outliers') {
-                    sampleSize = 15;
-                    riskLabel = "Valor Atípico";
-                    riskReason = "Valor excede el rango intercuartílico (IQR). Potencial error o fraude.";
-                    factors = ['Outlier'];
-                } else if (suggestedRisk === 'Duplicates') {
-                    sampleSize = 10;
-                    riskLabel = "Posible Duplicado";
-                    riskReason = "Importe idéntico detectado en múltiples registros.";
-                    factors = ['Duplicado'];
-                } else if (suggestedRisk === 'RoundNumbers') {
-                    sampleSize = 20;
-                    riskLabel = "Número Redondo";
-                    riskReason = "Importe termina en 00/000. Posible estimación manual.";
-                    factors = ['Redondeo'];
-                }
-
-                // Filter data based on single criterion
-                let filteredRows = realRows;
-                if (realRows.length > 0) {
-                    if (suggestedRisk === 'RoundNumbers') {
-                        filteredRows = realRows.filter(r => {
-                            const val = Math.abs(r.monetary_value_col);
-                            return (val > 100 && val % 100 === 0);
-                        });
-                        // If not enough filtered rows, we might need to take all of them or sample from them
-                    }
-                    // For Outliers, Duplicates etc, we rely on the `calculateRiskScore` helpers or basic filtering.
-                    // Simplified for this example, picking randomly from filtered set if possible, or top.
-                }
-
-                const finalCount = Math.min(sampleSize, filteredRows.length > 0 ? filteredRows.length : sampleSize);
+            const cav = samplingParams.cav;
+            if (cav.usePilotSample) {
+                sampleSize = 50; 
+                methodologyNotes.push("Fase 1: Muestra Piloto para determinación científica de la desviación estándar (Sigma).");
+                sample = selectItems(sampleSize, seed, realRows, () => ({ 
+                    is_pilot_item: true, 
+                    risk_flag: "Fase Piloto",
+                    risk_justification: "Registro para cálculo de varianza real."
+                }));
                 
-                sample = selectItems(finalCount, seed, filteredRows.length > 0 ? filteredRows : realRows, (i) => {
-                    return {
-                        risk_flag: riskLabel,
-                        risk_justification: riskReason,
-                        risk_factors: factors
-                    };
-                });
-                methodologyNotes.push(`Selección dirigida por criterio único: ${riskLabel}.`);
+                const vals = sample.map(i => i.value);
+                const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+                const variance = vals.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / (vals.length - 1);
+                const sigma = Math.sqrt(variance);
+                pilotMetrics = { type: 'CAV_PILOT', initialSigma: cav.sigma, calibratedSigma: sigma, phase: 'PILOT_ONLY', initialSize: 50 };
+            } else {
+                const N_CAV = realRows.length > 0 ? realRows.length : 1000;
+                sampleSize = Math.ceil(Math.pow((N_CAV * 1.96 * cav.sigma) / (samplingParams.mus.TE || 10000), 2));
+                sample = selectItems(sampleSize, seed, realRows, () => ({}));
             }
             break;
+
+        default:
+            sampleSize = 30;
+            sample = selectItems(sampleSize, seed, realRows, () => ({}));
     }
     
     return {
-        sampleSize: Math.max(0, sampleSize),
+        sampleSize,
         sample,
-        totalErrorProjection,
-        upperErrorLimit,
+        totalErrorProjection: 0,
+        upperErrorLimit: 0,
         findings: [],
-        methodologyNotes
+        methodologyNotes,
+        pilotMetrics
     };
 };
