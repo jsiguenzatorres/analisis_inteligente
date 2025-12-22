@@ -71,8 +71,7 @@ const Step3SamplingMethod: React.FC<Props> = ({ appState, setAppState, setCurren
                 
                 if (error) {
                     console.error("Error crítico recuperando filas:", error);
-                    const msg = error.message || JSON.stringify(error);
-                    alert(`Error conectando con la base de datos: ${msg}`);
+                    alert(`Error conectando con la base de datos: ${error.message}`);
                     setLoading(false);
                     return;
                 }
@@ -96,10 +95,9 @@ const Step3SamplingMethod: React.FC<Props> = ({ appState, setAppState, setCurren
             const results = calculateSampleSize(appState, realRows);
             setAppState(prev => ({...prev, results}));
             setCurrentStep(Step.Results);
-        } catch (error: any) {
+        } catch (error) {
             console.error("Sampling error:", error);
-            const msg = error instanceof Error ? error.message : JSON.stringify(error);
-            alert(`Ocurrió un error inesperado calculando la muestra: ${msg}`);
+            alert("Ocurrió un error inesperado calculando la muestra. Revise la consola del navegador.");
         } finally {
             setLoading(false);
         }
@@ -173,8 +171,11 @@ const Step3SamplingMethod: React.FC<Props> = ({ appState, setAppState, setCurren
                  <div className="px-8 py-6 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
                     <button 
                         onClick={handleBack} 
-                        className="px-6 py-3 border border-slate-300 rounded-lg text-sm font-bold text-slate-600 bg-white hover:bg-slate-50 shadow-sm transition-all hover:text-slate-800 uppercase tracking-wide focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500"
+                        className="px-6 py-3 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-700 uppercase tracking-widest hover:text-blue-800 hover:border-blue-500 hover:shadow-xl transition-all transform hover:-translate-y-1 group flex items-center shadow-md"
                     >
+                        <div className="bg-slate-100 group-hover:bg-blue-50 p-2 rounded-lg mr-3 transition-colors">
+                            <i className="fas fa-chevron-left text-blue-600 transform group-hover:-translate-x-1 transition-transform"></i>
+                        </div>
                         Atrás
                     </button>
                     <button 

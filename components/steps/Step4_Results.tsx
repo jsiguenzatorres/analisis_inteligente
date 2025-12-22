@@ -1,18 +1,15 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { AppState, AuditFinding, ObservationType, SamplingMethod } from '../../types';
-import RiskChart from '../reporting/RiskChart';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { AppState, SamplingMethod, AuditResults } from '../../types';
 import Modal from '../ui/Modal';
 import { RichInfoCard } from '../ui/RichInfoCard';
-import { ASSISTANT_CONTENT } from '../../constants';
-import { utils, writeFile } from 'xlsx';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import RiskChart from '../reporting/RiskChart';
+import { supabase } from '../../services/supabaseClient';
+import { generateAuditReport } from '../../services/reportService';
 import html2canvas from 'html2canvas';
-import { expandAuditSample, calculateStopOrGoExpansion } from '../../services/statisticalService';
 import { 
-    PieChart, Pie, Cell, 
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer,
-    ScatterChart, Scatter, ZAxis, ReferenceLine, ReferenceArea, Label
+    BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, 
+    ScatterChart, Scatter, ZAxis, CartesianGrid, ReferenceLine, ReferenceArea, LabelList
 } from 'recharts';
 
 interface Props {
@@ -21,829 +18,415 @@ interface Props {
     onRestart: () => void;
 }
 
+const INSIGHT_COLORS = {
+    Benford: '#ef4444',
+    Outliers: '#9333ea',
+    Duplicates: '#f97316',
+    RoundNumbers: '#06b6d4'
+};
+
 const formatMoney = (amount: number) => {
     return amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
-const BAR_COLORS: {[key: string]: string} = {
-    'Outlier': '#7c3aed', 
-    'Redondeo': '#0891b2', 
-    'Duplicado': '#ea580c', 
-    'Benford': '#2563eb', 
-    'Juicio del Auditor': '#475569',
-    'Elemento Clave': '#b91c1c', 
-    'Alto Valor': '#c2410c',
-    'Aleatorio': '#64748b'
+const getMethodLabel = (method: SamplingMethod) => {
+    switch (method) {
+        case SamplingMethod.Attribute: return 'de Atributos';
+        case SamplingMethod.MUS: return 'Monetario (MUS)';
+        case SamplingMethod.CAV: return 'de Variables (CAV)';
+        case SamplingMethod.Stratified: return 'Estratificado';
+        case SamplingMethod.NonStatistical: return 'No Estadístico (Juicio)';
+        default: return method;
+    }
+};
+
+const CustomScatterTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+        const data = payload[0].payload;
+        return (
+            <div className="bg-white p-3 rounded shadow-xl border border-slate-200 text-xs z-50">
+                <p className="font-bold text-base mb-1" style={{color: data.color}}>{data.label}</p>
+                <p className="text-slate-600 font-bold">Registros: {data.count.toLocaleString()}</p>
+                <p className="text-slate-500 italic mt-1">{data.description}</p>
+            </div>
+        );
+    }
+    return null;
 };
 
 const Step4Results: React.FC<Props> = ({ appState, onBack, onRestart }) => {
-    
     if (!appState.results) return null;
 
-    const { results, generalParams, samplingMethod, samplingParams, selectedPopulation } = appState;
-    const [currentResults, setCurrentResults] = useState(results);
-    const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-    
-    const isStratified = samplingMethod === SamplingMethod.Stratified;
-    const isNonStatistical = samplingMethod === SamplingMethod.NonStatistical;
-
-    const chartRef = useRef<HTMLDivElement>(null);
-
-    const maxFreqCalc = useMemo(() => {
-        if (!isNonStatistical) return 10;
-        const counts: Record<string, number> = {};
-        currentResults.sample.forEach(item => {
-            const factors = item.risk_factors || [item.risk_flag || 'General'];
-            factors.forEach(f => counts[f] = (counts[f] || 0) + 1);
-        });
-        return Math.max(...Object.values(counts), 5) * 1.2;
-    }, [currentResults, isNonStatistical]);
-
-    const maxSevCalc = useMemo(() => {
-        if (!isNonStatistical) return 5;
-        let maxS = 0;
-        currentResults.sample.forEach(item => {
-            if(item.risk_score && item.risk_score > maxS) maxS = item.risk_score;
-        });
-        return Math.max(maxS, 3) * 1.2;
-    }, [currentResults, isNonStatistical]);
-
-    const midFreq = maxFreqCalc / 2;
-    const midSev = maxSevCalc / 2;
-
-    const advancedRiskMetrics = useMemo(() => {
-        if (!isNonStatistical) return [];
-
-        const factorMap: Record<string, { count: number, totalScore: number, maxScore: number }> = {};
-
-        currentResults.sample.forEach(item => {
-            const factors = item.risk_factors || [item.risk_flag || 'General'];
-            const itemScore = item.risk_score || 1; 
-            
-            factors.forEach(f => {
-                if (!factorMap[f]) {
-                    factorMap[f] = { count: 0, totalScore: 0, maxScore: 0 };
-                }
-                factorMap[f].count += 1;
-                factorMap[f].totalScore += itemScore;
-                factorMap[f].maxScore = Math.max(factorMap[f].maxScore, itemScore);
-            });
-        });
-
-        return Object.entries(factorMap).map(([name, data]) => {
-            const avgSeverity = parseFloat((data.totalScore / data.count).toFixed(2));
-            const totalImpact = data.totalScore;
-            
-            let bubbleColor = '#94a3b8'; 
-
-            if (avgSeverity >= midSev) {
-                if (data.count >= midFreq) {
-                    bubbleColor = totalImpact > 50 ? '#b91c1c' : '#ef4444'; 
-                } else {
-                    bubbleColor = totalImpact > 20 ? '#c2410c' : '#f97316';
-                }
-            } else {
-                if (data.count >= midFreq) {
-                    bubbleColor = '#eab308';
-                } else {
-                    bubbleColor = '#3b82f6';
-                }
-            }
-
-            return {
-                name,
-                frequency: data.count,
-                avgSeverity,
-                totalImpact,
-                color: bubbleColor 
-            };
-        }).sort((a, b) => b.totalImpact - a.totalImpact);
-
-    }, [currentResults, isNonStatistical, midFreq, midSev]);
-
-    const isSequential = samplingMethod === SamplingMethod.Attribute && samplingParams.attribute.useSequential;
-    const [deviationsInput, setDeviationsInput] = useState<string>('0');
-    const [sequentialStage, setSequentialStage] = useState<number>(1);
-    const [calculatedExpansion, setCalculatedExpansion] = useState<{amount: number, justification: string}>({ amount: 0, justification: '' });
-    const [manualExpansionOverride, setManualExpansionOverride] = useState<string>('');
+    const { generalParams, samplingMethod, samplingParams, isLocked, isCurrentVersion, historyId, selectedPopulation } = appState;
+    const [currentResults, setCurrentResults] = useState<AuditResults>(appState.results);
     const [activeModal, setActiveModal] = useState<string | null>(null);
-    const [insightFilter, setInsightFilter] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [exporting, setExporting] = useState(false);
 
     useEffect(() => {
-        if (!isSequential) return;
-        const errors = parseInt(deviationsInput) || 0;
-        const currentSize = currentResults.sampleSize;
-        const { NC, ET } = samplingParams.attribute;
-        const suggestion = calculateStopOrGoExpansion(currentSize, errors, NC, ET);
-        setCalculatedExpansion({ amount: suggestion.recommendedExpansion, justification: suggestion.justification });
-        setManualExpansionOverride(suggestion.recommendedExpansion.toString());
-    }, [deviationsInput, currentResults.sampleSize, samplingParams.attribute, isSequential]);
-
-    const handleRequestExpansion = () => setActiveModal('sequentialExpansion');
-    const confirmExpansion = async () => {
-        const incrementalSize = parseInt(manualExpansionOverride) || calculatedExpansion.amount;
-        if (incrementalSize <= 0) return;
-        const newResults = expandAuditSample(currentResults, incrementalSize, generalParams.seed);
-        setCurrentResults(newResults);
-        setSequentialStage(prev => prev + 1);
-        setDeviationsInput('0'); 
-        setActiveModal(null); 
-    };
-
-    const generateInterpretationString = () => {
-        if (isNonStatistical) {
-            if (advancedRiskMetrics.length === 0) return "No hay suficientes datos para generar una interpretación de riesgos.";
-            const dominant = advancedRiskMetrics[0];
-            const others = advancedRiskMetrics.slice(1).map(m => m.name).join(', ');
-            return `El análisis de inteligencia de riesgos identifica a "${dominant.name}" como el vector predominante con un impacto ponderado de ${dominant.totalImpact.toFixed(1)} (Frecuencia: ${dominant.frequency}). Factores secundarios: ${others}.`;
-        } else {
-            if (samplingMethod === 'attribute') {
-                return `Con un nivel de confianza del ${samplingParams.attribute.NC}%, la muestra de ${currentResults.sampleSize} ítems permite validar si la tasa de desviación excede el ${samplingParams.attribute.ET}%.`;
-            } else if (samplingMethod === 'mus') {
-                return `Muestreo MUS diseñado para detectar sobrestimaciones con un Riesgo de Aceptación Incorrecta del ${samplingParams.mus.RIA}%. Intervalo de selección: $${formatMoney(samplingParams.mus.V / currentResults.sampleSize)}.`;
-            } else if (samplingMethod === 'cav') {
-                return `Muestreo de Variables Clásicas basado en una distribución normal (Sigma estimada: ${samplingParams.cav.sigma}). Diseñado para proyectar el valor total auditado.`;
-            }
+        if (appState.results) {
+            setCurrentResults(appState.results);
         }
-        return "Resultados generados conforme a los parámetros establecidos.";
-    };
+    }, [appState.results]);
 
-    const handleGenerateReport = async () => {
-        setIsGeneratingReport(true);
-        await new Promise(resolve => setTimeout(resolve, 300)); 
+    const isArchived = isLocked && !isCurrentVersion;
+    const analysis = selectedPopulation?.advanced_analysis;
 
+    const confidenceValue = samplingMethod === SamplingMethod.Attribute 
+        ? samplingParams.attribute.NC 
+        : (100 - (samplingParams.mus?.RIA || 5));
+
+    const summaryChartData = useMemo(() => {
+        if (!analysis) return [];
+        const benfordAnomalyCount = analysis.benford
+            ?.filter(b => b.isSuspicious)
+            .reduce((acc, curr) => acc + curr.actualCount, 0) || 0;
+
+        return [
+            { name: 'Outliers', label: 'Atípicos', count: analysis.outliersCount, severity: 90, color: INSIGHT_COLORS.Outliers, description: 'Impacto Alto' },
+            { name: 'Benford', label: 'Benford', count: benfordAnomalyCount, severity: 75, color: INSIGHT_COLORS.Benford, description: 'Anomalía' },
+            { name: 'Duplicates', label: 'Duplicados', count: analysis.duplicatesCount, severity: 60, color: INSIGHT_COLORS.Duplicates, description: 'Operativo' },
+            { name: 'RoundNumbers', label: 'Redondos', count: analysis.roundNumbersCount, severity: 40, color: INSIGHT_COLORS.RoundNumbers, description: 'Estimados' }
+        ].filter(item => item.count > 0);
+    }, [analysis]);
+
+    const maxCountForDomain = Math.max(...summaryChartData.map(d => d.count), 10) * 1.2;
+
+    const handleSyncToDatabase = async () => {
+        if (!historyId || !isCurrentVersion || saving) return;
+        setSaving(true);
         try {
-            const doc = new jsPDF();
-            const pageWidth = doc.internal.pageSize.width;
-            
-            doc.setFillColor(30, 41, 59);
-            doc.rect(0, 0, pageWidth, 45, 'F');
-            
-            doc.setTextColor(255, 255, 255);
-            doc.setFontSize(22);
-            doc.setFont('helvetica', 'bold');
-            doc.text("Papel de Trabajo: Selección de Muestra", 14, 20);
-            
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'normal');
-            doc.text(`Generado por AAMA v3.0 | Auditoría Interna`, 14, 30);
-            doc.text(`Fecha: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, pageWidth - 14, 30, { align: 'right' });
-            
-            const integrityHash = selectedPopulation?.integrity_hash || 'HASH-NO-DISPONIBLE';
-            doc.setFont('courier', 'normal');
-            doc.setFontSize(8);
-            doc.setTextColor(148, 163, 184);
-            doc.text(`Integrity Hash: ${integrityHash}`, 14, 40);
+            const { error } = await supabase
+                .from('audit_historical_samples')
+                .update({ results_snapshot: currentResults })
+                .eq('id', historyId);
+            if (error) throw error;
+            alert("Sincronización Exitosa.");
+        } catch (err: any) {
+            alert("Error: " + err.message);
+        } finally {
+            setSaving(false);
+        }
+    };
 
-            let currentY = 55;
-            doc.setTextColor(40, 40, 40);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(12);
-            doc.text("Resumen de la Población y Muestra", 14, currentY);
+    const handleExportPDF = async () => {
+        setExporting(true);
+        try {
+            const forensicContainer = document.getElementById('forensic-charts-dashboard');
+            const resultsContainer = document.getElementById('main-risk-chart-container');
+            const kpiContainer = document.getElementById('results-kpis-panel');
+            const insightsContainer = document.getElementById('forensic-summary-insights');
+            const strategyContainer = document.getElementById('selected-strategy-snapshot');
             
-            currentY += 8;
-            autoTable(doc, {
-                startY: currentY,
-                head: [['Parámetro', 'Detalle']],
-                body: [
-                    ['Archivo Fuente', selectedPopulation?.file_name || 'N/A'],
-                    ['Objetivo', generalParams.objective || 'No definido'],
-                    ['Método de Muestreo', samplingMethod.toUpperCase()],
-                    ['Semilla (Trazabilidad)', generalParams.seed],
-                    ['Tamaño Población (N)', selectedPopulation?.row_count.toLocaleString()],
-                    ['Valor Total Población', `$${formatMoney(selectedPopulation?.total_monetary_value || 0)}`],
-                    ['Tamaño Muestra (n)', currentResults.sampleSize],
-                ],
-                theme: 'striped',
-                headStyles: { fillColor: [59, 130, 246] },
-                styles: { fontSize: 9 },
-                columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 } }
-            });
+            let forensicImg = undefined;
+            let resultsImg = undefined;
+            let kpiImg = undefined;
+            let insightsImg = undefined;
+            let strategyImg = undefined;
 
-            // @ts-ignore
-            currentY = doc.lastAutoTable.finalY + 15;
-
-            doc.setFontSize(12);
-            doc.setFont('helvetica', 'bold');
-            doc.text(`Parámetros Específicos: ${samplingMethod === 'non_statistical' ? 'Muestreo No Estadístico / Juicio' : samplingMethod.toUpperCase()}`, 14, currentY);
-            currentY += 8;
-
-            let paramRows: any[] = [];
-            if (samplingMethod === SamplingMethod.MUS) {
-                paramRows = [
-                    ['Error Tolerable (TE)', `$${formatMoney(samplingParams.mus.TE)}`],
-                    ['Errores Esperados (EE)', `$${formatMoney(samplingParams.mus.EE)}`],
-                    ['Riesgo Aceptación (RIA)', `${samplingParams.mus.RIA}%`],
-                    ['Optimización Estrato Superior', samplingParams.mus.optimizeTopStratum ? 'Activado' : 'Desactivado'],
-                    ['Tratamiento Negativos', samplingParams.mus.handleNegatives]
-                ];
-            } else if (samplingMethod === SamplingMethod.Attribute) {
-                paramRows = [
-                    ['Nivel de Confianza (NC)', `${samplingParams.attribute.NC}%`],
-                    ['Tasa Desviación Tolerable (ET)', `${samplingParams.attribute.ET}%`],
-                    ['Tasa Desviación Esperada (PE)', `${samplingParams.attribute.PE}%`],
-                    ['Muestreo Secuencial', samplingParams.attribute.useSequential ? 'Activado (Stop-or-Go)' : 'Desactivado']
-                ];
-                if (samplingParams.attribute.useSequential) {
-                    paramRows.push(['Etapa Secuencial Actual', `Etapa ${sequentialStage}`]);
-                }
-            } else if (samplingMethod === SamplingMethod.NonStatistical) {
-                paramRows = [
-                    ['Estrategia de Riesgo', samplingParams.nonStatistical.suggestedRisk || 'Manual'],
-                    ['Criterio de Selección', samplingParams.nonStatistical.criteria],
-                    ['Justificación Técnica', samplingParams.nonStatistical.justification],
-                ];
-            } else if (samplingMethod === SamplingMethod.CAV) {
-                paramRows = [
-                    ['Desviación Estándar (Sigma)', samplingParams.cav.usePilotSample ? `Auto (Piloto): ${samplingParams.cav.sigma}` : samplingParams.cav.sigma],
-                    ['Técnica de Estimación', samplingParams.cav.estimationTechnique],
-                    ['Estratificación', samplingParams.cav.stratification ? 'Obligatoria Activada' : 'Desactivada']
-                ];
-            } else if (samplingMethod === SamplingMethod.Stratified) {
-                 paramRows = [
-                    ['Base de Estratificación', samplingParams.stratified.basis],
-                    ['Cantidad de Estratos', samplingParams.stratified.strataCount],
-                    ['Método Asignación', samplingParams.stratified.allocationMethod],
-                    ['Umbral Certeza', `$${formatMoney(samplingParams.stratified.certaintyStratumThreshold)}`]
-                ];
+            if (forensicContainer) {
+                const canvas = await html2canvas(forensicContainer, { scale: 2 });
+                forensicImg = canvas.toDataURL('image/png');
             }
 
-            autoTable(doc, {
-                startY: currentY,
-                head: [['Parámetro Técnico', 'Valor Configurado']],
-                body: paramRows,
-                theme: 'grid',
-                headStyles: { fillColor: [71, 85, 105] },
-                styles: { fontSize: 9, cellWidth: 'wrap' },
-                columnStyles: { 0: { fontStyle: 'bold', cellWidth: 70 } }
-            });
-
-            // @ts-ignore
-            currentY = doc.lastAutoTable.finalY + 15;
-
-            if (currentY + 80 > doc.internal.pageSize.height) {
-                doc.addPage();
-                currentY = 20;
+            if (resultsContainer) {
+                const canvas = await html2canvas(resultsContainer, { scale: 2 });
+                resultsImg = canvas.toDataURL('image/png');
             }
 
-            doc.setFontSize(14);
-            doc.setTextColor(22, 163, 74);
-            doc.text("Resultados del Muestreo", 14, currentY);
-            currentY += 8;
-
-            doc.setFillColor(240, 253, 244);
-            doc.setDrawColor(22, 163, 74);
-            doc.rect(14, currentY, pageWidth - 28, 25, 'FD');
-            
-            doc.setFontSize(10);
-            doc.setTextColor(22, 69, 30);
-            const interpretationText = generateInterpretationString();
-            const splitInterp = doc.splitTextToSize(interpretationText, pageWidth - 35);
-            doc.text(splitInterp, 18, currentY + 7);
-            
-            if (isSequential && calculatedExpansion.amount > 0) {
-                 doc.setFont('helvetica', 'bold');
-                 doc.text(`Alerta Secuencial: ${calculatedExpansion.justification}`, 18, currentY + 20);
+            if (kpiContainer) {
+                const canvas = await html2canvas(kpiContainer, { scale: 2 });
+                kpiImg = canvas.toDataURL('image/png');
             }
 
-            currentY += 30;
-
-            if (chartRef.current) {
-                const canvas = await html2canvas(chartRef.current, { scale: 1.5 });
-                const imgData = canvas.toDataURL('image/png');
-                const imgWidth = pageWidth - 28;
-                const imgHeight = (canvas.height * imgWidth) / canvas.width;
-                
-                if (currentY + imgHeight > doc.internal.pageSize.height) {
-                    doc.addPage();
-                    currentY = 20;
-                }
-                
-                doc.addImage(imgData, 'PNG', 14, currentY, imgWidth, imgHeight);
-                currentY += imgHeight + 10;
+            if (insightsContainer) {
+                const canvas = await html2canvas(insightsContainer, { scale: 2 });
+                insightsImg = canvas.toDataURL('image/png');
             }
 
-            if (currentResults.methodologyNotes && currentResults.methodologyNotes.length > 0) {
-                 if (currentY + 30 > doc.internal.pageSize.height) {
-                    doc.addPage();
-                    currentY = 20;
-                }
-                
-                doc.setFontSize(10);
-                doc.setTextColor(100, 116, 139);
-                doc.setFont('helvetica', 'italic');
-                currentResults.methodologyNotes.forEach(note => {
-                    doc.text(`* ${note}`, 14, currentY);
-                    currentY += 5;
-                });
-                currentY += 5;
+            if (strategyContainer) {
+                const canvas = await html2canvas(strategyContainer, { scale: 2 });
+                strategyImg = canvas.toDataURL('image/png');
             }
 
-            doc.addPage();
-            doc.setTextColor(40, 40, 40);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(14);
-            doc.text("Detalle de la Muestra Seleccionada", 14, 20);
-
-            const tableRows = currentResults.sample.map((item, i) => {
-                let riskLabel = item.risk_factors?.join(', ') || item.risk_flag || item.stratum_label || '';
-                if (item.risk_score && item.risk_score >= 3 || riskLabel.includes('Significativa')) {
-                    riskLabel = `🔥 ${riskLabel}`;
-                }
-                return [
-                    (i+1).toString(), 
-                    String(item.id), 
-                    `$${formatMoney(item.value)}`,
-                    riskLabel,
-                    item.risk_score ? item.risk_score.toString() : '-',
-                    item.risk_justification || ''
-                ];
-            });
-
-            autoTable(doc, {
-                startY: 25,
-                head: [['#', 'ID', 'Valor', 'Etiqueta / Riesgo', 'Score', 'Justificación']],
-                body: tableRows,
-                styles: { fontSize: 8, overflow: 'linebreak' },
-                columnStyles: {
-                    1: { cellWidth: 30 },
-                    5: { cellWidth: 50 }
-                },
-                didParseCell: function(data) {
-                    if (data.section === 'body') {
-                         const riskLabel = data.row.raw[3] as string;
-                         const score = parseFloat(data.row.raw[4] as string);
-                         
-                         if (score >= 3 || riskLabel.includes('Significativa') || riskLabel.includes('Crítico')) {
-                            data.cell.styles.textColor = [220, 38, 38];
-                            data.cell.styles.fontStyle = 'bold';
-                         }
-                    }
-                }
-            });
-
-            doc.save(`AAMA_Informe_${samplingMethod}_${generalParams.seed}.pdf`);
-
-        } catch (e) { 
-            console.error("Error generating PDF:", e);
-            alert("Error generando el informe PDF. Por favor intente nuevamente.");
-        } 
-        finally { setIsGeneratingReport(false); }
-    };
-
-    const handleExportExcel = (customData?: any[], fileNamePrefix: string = 'Muestra') => {
-        const dataToExport = customData || currentResults.sample;
-        const detailData = dataToExport.map((item, idx) => ({
-            'No.': idx + 1,
-            'ID Único': item.id,
-            'Valor Registrado': item.value,
-            'Factores de Riesgo': item.risk_factors ? item.risk_factors.join(', ') : item.risk_flag,
-            'Score Riesgo': item.risk_score || 'N/A',
-            'Justificación': item.risk_justification
-        }));
-        const wb = utils.book_new();
-        const wsDetail = utils.json_to_sheet(detailData);
-        utils.book_append_sheet(wb, wsDetail, "Detalle");
-        writeFile(wb, `${fileNamePrefix}_${generalParams.seed}.xlsx`);
-    };
-
-    const renderSequentialConsole = () => isSequential ? (
-       <div className="mb-8 bg-white rounded-xl shadow p-4 border border-blue-200">
-           <h3 className="font-bold text-blue-900">Consola Secuencial Activa</h3>
-           <div className="mt-2 flex gap-2">
-               <input type="number" value={deviationsInput} onChange={e=>setDeviationsInput(e.target.value)} className="border p-2 rounded w-24" />
-               <button onClick={handleRequestExpansion} className="bg-blue-600 text-white px-4 py-2 rounded">Calcular</button>
-           </div>
-       </div>
-    ) : null;
-
-    const renderValueBanner = (value: string | number) => (
-        <div className="mb-6 flex justify-center animate-fade-in-up">
-            <div className="bg-gradient-to-br from-slate-800 to-slate-900 text-white px-8 py-4 rounded-xl shadow-lg border border-slate-700 text-center min-w-[200px] transform hover:scale-105 transition-transform duration-300">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400 font-bold mb-2">Valor Configurado</div>
-                <div className="text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-white font-mono">
-                    {value}
-                </div>
-            </div>
-        </div>
-    );
-
-    const getConfidenceModalContent = () => (
-        <div className="space-y-4">
-            {renderValueBanner(`${samplingParams.attribute.NC}%`)}
-            {ASSISTANT_CONTENT.nivelConfianza.content}
-        </div>
-    );
-
-    const getSeedModalContent = () => (
-        <div className="space-y-4">
-            {renderValueBanner(generalParams.seed)}
-            {ASSISTANT_CONTENT.semilla.content}
-        </div>
-    );
-
-    const getErrorProjectionModalContent = () => {
-        if (samplingMethod === 'mus') {
-            return (
-                <div className="space-y-4">
-                    {renderValueBanner(`$${formatMoney(currentResults.upperErrorLimit || 0)}`)}
-                    <RichInfoCard type="definition" title="Límite Superior de Error (ULE)">
-                        Estimación máxima del error monetario en la población con el riesgo de aceptación (RIA) seleccionado. Es la suma del Error Proyectado (Tainting) + Precisión Básica + Factor Incremental.
-                    </RichInfoCard>
-                    <RichInfoCard type="standard" title="Criterio de Aceptación">
-                        Si el ULE es menor que el Error Tolerable ($ {formatMoney(samplingParams.mus.TE)}), se concluye que la población está razonablemente correcta.
-                    </RichInfoCard>
-                </div>
+            await generateAuditReport(
+                { ...appState, results: currentResults },
+                { forensic: forensicImg, results: resultsImg, kpis: kpiImg, insights: insightsImg, strategy: strategyImg }
             );
-        } else if (samplingMethod === 'cav') {
-            return (
-                <div className="space-y-4">
-                    {renderValueBanner(`$${formatMoney(currentResults.totalErrorProjection || 0)}`)}
-                    <RichInfoCard type="definition" title="Proyección de Error (Estimación Puntual)">
-                        Diferencia estimada entre el valor auditado proyectado (usando la media de la muestra) y el valor en libros registrado.
-                    </RichInfoCard>
-                    <RichInfoCard type="impact" title="Intervalo de Precisión">
-                        El valor real de la población se encuentra dentro de este rango:
-                        <br/>
-                        <strong>± ${formatMoney((currentResults.upperErrorLimit || 0) - (currentResults.totalErrorProjection || 0))}</strong> (con un {95}% de confianza).
-                    </RichInfoCard>
-                </div>
-            );
-        } else if (samplingMethod === 'stratified') {
-             return (
-                <div className="space-y-4">
-                    {renderValueBanner(`$${formatMoney(currentResults.totalErrorProjection || 0)}`)}
-                    <RichInfoCard type="definition" title="Proyección Estratificada">
-                        Suma de los errores proyectados individualmente en cada estrato. Al estratificar, la variabilidad total disminuye, haciendo esta proyección más precisa que un muestreo aleatorio simple.
-                    </RichInfoCard>
-                </div>
-            );
+        } catch (err: any) {
+            alert(`Error al generar el informe: ${err.message}.`);
+        } finally {
+            setExporting(false);
         }
-        return <p>Información no disponible.</p>;
     };
 
-    const getSampleSizeModalContent = () => {
-        if (samplingMethod === 'attribute') {
-            return (
-                <div className="space-y-4">
-                    <RichInfoCard type="formula" title="Fórmula Estadística">
-                        <p className="mb-2">Muestreo de Atributos (Distribución Binomial / Hipergeométrica).</p>
-                        <code className="bg-slate-100 px-2 py-1 rounded block w-fit text-xs font-mono text-slate-700">n = R / (1 - NC) [Simplificada]</code>
-                    </RichInfoCard>
-                    <RichInfoCard type="definition" title="Parámetros Utilizados">
-                        <ul className="list-disc list-inside">
-                            <li><strong>Nivel de Confianza (NC):</strong> {samplingParams.attribute.NC}%</li>
-                            <li><strong>Error Tolerable (ET):</strong> {samplingParams.attribute.ET}%</li>
-                            <li><strong>Error Esperado (PE):</strong> {samplingParams.attribute.PE}%</li>
-                        </ul>
-                    </RichInfoCard>
-                </div>
-            );
-        } else if (samplingMethod === 'mus') {
-            return (
-                 <div className="space-y-4">
-                    <RichInfoCard type="formula" title="Fórmula MUS (PPS)">
-                        <p className="mb-2">Muestreo por Unidad Monetaria.</p>
-                        <code className="bg-slate-100 px-2 py-1 rounded block w-fit text-xs font-mono text-slate-700">Intervalo = TE / Factor(RIA)</code>
-                    </RichInfoCard>
-                    <RichInfoCard type="impact" title="Lógica de Selección">
-                        Cada unidad monetaria ($1) tiene la misma probabilidad de selección.
-                    </RichInfoCard>
-                </div>
-            );
-        } else if (samplingMethod === 'cav') {
-             return (
-                 <div className="space-y-4">
-                    <RichInfoCard type="formula" title="Fórmula Variables Clásicas">
-                        <p className="mb-2">Distribución Normal (Media).</p>
-                        <code className="bg-slate-100 px-2 py-1 rounded block w-fit text-xs font-mono text-slate-700">n = [ (N * Z * σ) / TE ]²</code>
-                    </RichInfoCard>
-                </div>
-            );
-        } else if (samplingMethod === 'stratified') {
-             return (
-                 <div className="space-y-4">
-                    {renderValueBanner(currentResults.sampleSize)}
-                    <RichInfoCard type="definition" title="Estrategia de Estratificación">
-                        La población se dividió en <strong>{samplingParams.stratified.strataCount}</strong> grupos homogéneos según {samplingParams.stratified.basis}.
-                    </RichInfoCard>
-                    <RichInfoCard type="formula" title="Asignación de Muestra">
-                        Método: <strong>{samplingParams.stratified.allocationMethod}</strong>.
-                        <br/>Se aseguró un tamaño mínimo por estrato para validez estadística.
-                    </RichInfoCard>
-                </div>
-            );
-        } else if (samplingMethod === 'non_statistical') {
-             return (
-                 <div className="space-y-4">
-                    {renderValueBanner(currentResults.sampleSize)}
-                    <RichInfoCard type="definition" title="Juicio Profesional">
-                        Selección basada en criterios cualitativos definidos por el auditor.
-                    </RichInfoCard>
-                    <RichInfoCard type="impact" title="Criterio Aplicado">
-                        {samplingParams.nonStatistical.criteria || "Sin criterio definido"}
-                    </RichInfoCard>
-                    <RichInfoCard type="warning" title="Limitación">
-                        Los resultados no son extrapolables estadísticamente al 100% de la población.
-                    </RichInfoCard>
-                </div>
-            );
-        }
-        return <p>Cálculo basado en los parámetros definidos en el paso anterior.</p>;
-    };
-
-    const getCriticalItemsModalContent = () => {
-        if (insightFilter) {
-            const filteredItems = currentResults.sample.filter(i => 
-                i.risk_factors?.includes(insightFilter) || i.risk_flag?.includes(insightFilter)
-            );
-            
-            return (
-                <div className="space-y-4">
-                    <div className="flex justify-between items-center bg-slate-50 p-4 rounded-lg border border-slate-200">
-                        <div>
-                            <h4 className="font-bold text-slate-800 text-lg flex items-center">
-                                <i className="fas fa-filter mr-2 text-blue-500"></i>
-                                {insightFilter}
-                            </h4>
-                            <p className="text-sm text-slate-500">{filteredItems.length} ítems detectados</p>
-                        </div>
-                        <button 
-                            onClick={() => handleExportExcel(filteredItems, `Detalle_${insightFilter}`)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded shadow flex items-center text-xs font-bold uppercase tracking-wide transition-colors"
-                        >
-                            <i className="fas fa-file-excel mr-2"></i> Exportar Lista
-                        </button>
-                    </div>
-                    
-                    <div className="max-h-60 overflow-y-auto custom-scrollbar border rounded-lg">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-100 sticky top-0">
-                                <tr>
-                                    <th className="px-4 py-2 text-left text-xs font-bold text-gray-500">ID</th>
-                                    <th className="px-4 py-2 text-right text-xs font-bold text-gray-500">Valor</th>
-                                    <th className="px-4 py-2 text-left text-xs font-bold text-gray-500">Detalle</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-100">
-                                {filteredItems.map((item, idx) => (
-                                    <tr key={idx}>
-                                        <td className="px-4 py-2 text-xs font-mono text-slate-700">{item.id}</td>
-                                        <td className="px-4 py-2 text-xs text-right font-mono text-slate-700">${formatMoney(item.value)}</td>
-                                        <td className="px-4 py-2 text-xs text-slate-500">{item.risk_justification}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                    <div className="text-right">
-                        <button onClick={() => setInsightFilter(null)} className="text-xs text-blue-600 underline">Ver todos los críticos</button>
-                    </div>
-                </div>
-            );
-        }
-
-        const criticalItems = currentResults.sample.filter(i => (i.risk_score || 0) >= 2 || i.risk_flag?.includes('Alto') || i.risk_flag?.includes('Crítico'));
-        return (
-            <div className="space-y-4">
-                {renderValueBanner(criticalItems.length)}
-                <RichInfoCard type="warning" title="Definición de Criticidad">
-                    Ítems que superan el umbral de riesgo configurado (Score mayor o igual a 2) o que cumplen múltiples criterios de alerta (ej. Benford + Outlier).
-                </RichInfoCard>
-                
-                <div className="flex justify-end">
-                     <button 
-                        onClick={() => handleExportExcel(criticalItems, 'Items_Criticos')}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded shadow flex items-center text-xs font-bold uppercase tracking-wide transition-colors"
-                    >
-                        <i className="fas fa-file-excel mr-2"></i> Exportar Críticos
-                    </button>
-                </div>
-
-                {criticalItems.length > 0 ? (
-                    <div className="max-h-60 overflow-y-auto custom-scrollbar border rounded-lg bg-red-50">
-                         <table className="min-w-full divide-y divide-red-100">
-                            <thead className="bg-red-100 sticky top-0">
-                                <tr>
-                                    <th className="px-4 py-2 text-left text-xs font-bold text-red-800">ID</th>
-                                    <th className="px-4 py-2 text-right text-xs font-bold text-red-800">Valor</th>
-                                    <th className="px-4 py-2 text-left text-xs font-bold text-red-800">Factores</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-red-50">
-                                {criticalItems.map((item, idx) => (
-                                    <tr key={idx}>
-                                        <td className="px-4 py-2 text-xs font-mono font-bold text-slate-700">{item.id}</td>
-                                        <td className="px-4 py-2 text-xs text-right font-mono text-slate-700">${formatMoney(item.value)}</td>
-                                        <td className="px-4 py-2 text-xs text-red-600 font-bold">{item.risk_factors?.join(', ')}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                ) : (
-                    <p className="text-sm text-center text-gray-500 italic py-4">No se detectaron ítems críticos en la muestra seleccionada.</p>
-                )}
-            </div>
-        );
-    };
-
-    const getSequentialExpansionModalContent = () => (
-        <div className="p-4 font-sans">
-            <RichInfoCard type="definition" title="Análisis Stop-or-Go">
-                {calculatedExpansion.justification}
-            </RichInfoCard>
-            
-            <div className={`p-4 rounded-lg border flex items-center mb-4 ${calculatedExpansion.amount > 0 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-green-50 border-green-200 text-green-800'}`}>
-                 <i className={`fas ${calculatedExpansion.amount > 0 ? 'fa-exclamation-triangle' : 'fa-check-circle'} text-2xl mr-4`}></i>
-                 <div>
-                     <h4 className="font-bold text-lg">{calculatedExpansion.amount > 0 ? 'Expansión Recomendada' : 'Muestra Suficiente'}</h4>
-                     <p className="text-sm">
-                        {calculatedExpansion.amount > 0 
-                            ? `Se requiere añadir +${calculatedExpansion.amount} ítems para mantener el Nivel de Confianza.` 
-                            : 'No se detectan desviaciones suficientes para invalidar la muestra actual.'}
-                     </p>
-                 </div>
-            </div>
-
-            <button onClick={confirmExpansion} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md transition-all">
-                {calculatedExpansion.amount > 0 ? 'Aplicar Ampliación a la Muestra' : 'Cerrar Panel'}
-            </button>
-        </div>
-    );
-
-    const CustomScatterTooltip = ({ active, payload }: any) => {
-        if (active && payload && payload.length) {
-            const data = payload[0].payload;
-            return (
-                <div className="bg-slate-800 text-white p-3 rounded shadow-xl border border-slate-700 text-xs z-50">
-                    <p className="font-bold text-sm mb-1" style={{color: data.color}}>{data.name}</p>
-                    <p>Frecuencia: <span className="font-mono text-emerald-400">{data.frequency}</span> items</p>
-                    <p>Severidad Prom: <span className="font-mono text-amber-400">{data.avgSeverity}</span> pts</p>
-                    <p className="mt-1 border-t border-slate-600 pt-1">Impacto Total: <strong>{data.totalImpact.toFixed(1)}</strong></p>
-                </div>
-            );
-        }
-        return null;
-    };
-
-    const CustomBarTooltip = ({ active, payload }: any) => {
-        if (active && payload && payload.length) {
-            const data = payload[0].payload;
-            return (
-                <div className="bg-white p-3 rounded shadow-xl border border-slate-200 text-xs z-50">
-                    <p className="font-bold text-slate-800 mb-1">{data.name}</p>
-                    <p className="text-slate-600">Weighted Risk Score: <span className="font-bold text-blue-600">{data.totalImpact.toFixed(1)}</span></p>
-                    <p className="text-[10px] text-emerald-600 mt-1 font-bold">Haz clic para ver detalle</p>
-                </div>
-            );
-        }
-        return null;
-    };
-
-    const getInterpretationText = () => {
-        const text = generateInterpretationString();
-        return (
-            <div className="lg:col-span-2 bg-gradient-to-r from-slate-50 to-white p-5 rounded-lg border-l-4 border-indigo-500 shadow-sm text-sm text-slate-700">
-                <h4 className="font-bold text-indigo-900 mb-2 flex items-center">
-                    <i className="fas fa-robot mr-2"></i> Interpretación de Inteligencia de Riesgos
-                </h4>
-                <p className="leading-relaxed">{text}</p>
-            </div>
-        );
-    };
+    const benfordAnomalies = analysis?.benford?.filter(b => b.isSuspicious).reduce((a, b) => a + b.actualCount, 0) || 0;
 
     return (
         <div className="animate-fade-in pb-20">
-            <div className="mb-8 flex flex-col md:flex-row md:items-center md:justify-between bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <div>
-                     <button onClick={onBack} className="text-sm font-bold text-slate-500 hover:text-blue-600 mb-2 flex items-center transition-colors uppercase tracking-wide">
-                        <i className="fas fa-arrow-left mr-2"></i>Volver a Configuración
-                    </button>
-                    <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 drop-shadow-sm tracking-tight">Resultados de Auditoría</h2>
-                </div>
-                <div className="mt-4 md:mt-0 flex space-x-3">
-                     <button onClick={onRestart} className="px-5 py-2.5 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-600">Reiniciar</button>
-                     <button onClick={handleGenerateReport} disabled={isGeneratingReport} className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg shadow font-bold text-sm flex items-center disabled:opacity-70 disabled:cursor-not-allowed">
-                        {isGeneratingReport ? <i className="fas fa-circle-notch fa-spin mr-2"></i> : <i className="fas fa-file-pdf mr-2"></i>}
-                        {isGeneratingReport ? 'Generando PDF...' : 'Informe Oficial'}
-                     </button>
+            {/* Header VIP */}
+            <div className="mb-8 rounded-3xl shadow-lg border border-slate-200 overflow-hidden relative bg-white">
+                <div className={`absolute left-0 top-0 bottom-0 w-2 ${isArchived ? 'bg-red-500' : isCurrentVersion ? 'bg-emerald-500' : 'bg-blue-600'}`}></div>
+                <div className="px-8 py-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <div className="flex items-center gap-3 mb-1">
+                            <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                                Papel de Trabajo: <span className="text-blue-700">{getMethodLabel(samplingMethod)}</span>
+                            </h2>
+                            {isLocked && (
+                                <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center shadow-lg ${isCurrentVersion ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white'}`}>
+                                    <i className={`fas ${isCurrentVersion ? 'fa-check-double' : 'fa-lock'} mr-2 text-cyan-400`}></i> 
+                                    {isCurrentVersion ? 'Archivo Vigente' : 'Archivo Archivado'}
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-xs text-slate-500 font-bold flex items-center">
+                            Objetivo: {generalParams.objective || "Validación General de Integridad"}
+                        </p>
+                    </div>
+                    <div className="flex gap-3">
+                         <button onClick={handleExportPDF} disabled={exporting} className="px-5 py-3 bg-slate-900 border border-slate-700 rounded-xl text-xs font-black text-white uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center shadow-md">
+                            {exporting ? <i className="fas fa-spinner fa-spin mr-2"></i> : <i className="fas fa-file-pdf mr-2 text-red-400"></i>}
+                            Exportar Papel de Trabajo
+                        </button>
+                         {isCurrentVersion && (
+                            <button onClick={handleSyncToDatabase} disabled={saving} className="px-5 py-3 bg-emerald-100 border border-emerald-300 rounded-xl text-xs font-black text-emerald-700 uppercase tracking-widest hover:bg-emerald-200 transition-all flex items-center shadow-md">
+                                {saving ? <i className="fas fa-sync fa-spin mr-2"></i> : <i className="fas fa-cloud-upload mr-2"></i>} Sincronizar Cambios
+                            </button>
+                         )}
+                         <button onClick={onBack} className="px-6 py-3 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-700 uppercase tracking-widest hover:text-blue-800 hover:border-blue-500 transition-all shadow-md">
+                            <i className="fas fa-chevron-left mr-3"></i> Volver
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            {renderSequentialConsole()}
-
-            <div className="space-y-10">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div onClick={() => setActiveModal('sampleSize')} className="bg-violet-600 text-white p-6 rounded-2xl shadow-lg cursor-pointer transform hover:-translate-y-1 transition-transform relative overflow-hidden group">
-                        <h3 className="text-5xl font-extrabold relative z-10">{currentResults.sampleSize}</h3>
-                        <p className="font-bold mt-1 relative z-10">Items Seleccionados</p>
+            {/* I. ESCENARIO PRELIMINAR (CAPTURA PARA PDF - IMAGEN 1) */}
+            <div className="mb-10">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">I. Diagnóstico Forense y Estrategia Preliminar</h3>
+                
+                {/* 1.1 Insights Forenses */}
+                <div id="forensic-summary-insights" className="grid grid-cols-4 gap-4 mb-4 bg-slate-50 p-4 rounded-3xl border border-slate-200">
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 text-center shadow-sm">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Ley de Benford</p>
+                        <p className="text-xl font-black text-rose-500">{benfordAnomalies}</p>
+                        <p className="text-[7px] font-bold text-slate-400 uppercase">Anomalías</p>
                     </div>
-                    
-                    <div onClick={() => {
-                            if (isNonStatistical) setActiveModal('criticalItems');
-                            else if (['mus', 'cav', 'stratified'].includes(samplingMethod)) setActiveModal('errorProjection');
-                            else if (samplingMethod === 'attribute') setActiveModal('confidence');
-                        }}
-                        className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 transform hover:-translate-y-1 transition-transform cursor-pointer group"
-                    >
-                        <h3 className="text-4xl font-extrabold text-blue-600">
-                            {isNonStatistical ? currentResults.sample.filter(i => (i.risk_score || 0) >= 2).length : (samplingMethod === 'attribute' ? `${samplingParams.attribute.NC}%` : `$${formatMoney(currentResults.totalErrorProjection||0)}`)}
-                        </h3>
-                        <p className="font-bold text-slate-500 mt-1">{isNonStatistical ? 'Ítems Críticos' : (samplingMethod === 'attribute' ? 'Nivel de Confianza' : 'Proyección de Error')}</p>
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 text-center shadow-sm">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Atípicos</p>
+                        <p className="text-xl font-black text-purple-600">{analysis?.outliersCount || 0}</p>
+                        <p className="text-[7px] font-bold text-slate-400 uppercase">Registros</p>
                     </div>
-
-                    <div onClick={() => setActiveModal('seed')} className="bg-slate-800 text-white p-6 rounded-2xl shadow-lg cursor-pointer transform hover:-translate-y-1 transition-transform relative group">
-                        <h3 className="text-4xl font-mono font-extrabold">{generalParams.seed}</h3>
-                        <p className="font-bold mt-1">Semilla (Seed)</p>
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 text-center shadow-sm">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Duplicados</p>
+                        <p className="text-xl font-black text-orange-500">{analysis?.duplicatesCount || 0}</p>
+                        <p className="text-[7px] font-bold text-slate-400 uppercase">Repetidos</p>
+                    </div>
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 text-center shadow-sm">
+                        <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Redondos</p>
+                        <p className="text-xl font-black text-cyan-600">{analysis?.roundNumbersCount || 0}</p>
+                        <p className="text-[7px] font-bold text-slate-400 uppercase">Hallazgos</p>
                     </div>
                 </div>
 
-                {isNonStatistical && advancedRiskMetrics.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden" ref={chartRef}>
-                        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            <div className="h-96 border rounded-xl p-4 bg-white shadow-sm relative">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                                        <XAxis type="number" dataKey="frequency" name="Frecuencia" unit=" items" stroke="#94a3b8" fontSize={10} domain={[0, maxFreqCalc]} />
-                                        <YAxis type="number" dataKey="avgSeverity" name="Severidad Promedio" stroke="#94a3b8" fontSize={10} domain={[0, maxSevCalc]} />
-                                        <ZAxis type="number" dataKey="totalImpact" range={[100, 1000]} name="Impacto Total" />
-                                        <RechartsTooltip content={<CustomScatterTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-                                        {advancedRiskMetrics.map((entry, index) => (
-                                            <Scatter key={index} name={entry.name} data={[entry]} fill={entry.color} shape="circle" />
-                                        ))}
-                                    </ScatterChart>
-                                </ResponsiveContainer>
-                            </div>
+                {/* 1.2 Estrategia, Criterio y Justificación (BLOQUE INTEGRAL PARA IMAGEN 1) */}
+                <div id="selected-strategy-snapshot" className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm space-y-8 relative overflow-hidden">
+                    {/* Badge de Estrategia */}
+                    <div className="absolute top-0 right-0 p-1 bg-rose-500 text-white text-[8px] font-black px-4 py-1.5 uppercase tracking-widest rounded-bl-2xl shadow-lg z-10">
+                        ESTRATEGIA ACTIVA
+                    </div>
 
-                            <div className="h-96 border rounded-xl p-4 bg-white shadow-sm">
+                    {/* Fila 1: Tarjeta de Estrategia */}
+                    <div className="flex items-center gap-6 border-b border-slate-100 pb-6">
+                        <div className="h-16 w-16 bg-rose-50 rounded-full flex items-center justify-center border-4 border-rose-100 shadow-sm text-rose-500 flex-shrink-0">
+                            <i className="fas fa-biohazard text-3xl"></i>
+                        </div>
+                        <div>
+                            <h4 className="text-slate-800 font-black text-lg">Risk Scoring (Muestreo Inteligente)</h4>
+                            <p className="text-xs text-slate-500 leading-relaxed mt-1">
+                                Combina todos los factores anteriores para calcular un <span className="font-bold text-slate-700">Puntaje de Riesgo</span> por transacción.
+                            </p>
+                            <div className="flex gap-2 mt-3">
+                                <span className="px-2 py-0.5 bg-rose-50 border border-rose-100 rounded text-[9px] font-bold text-rose-700 uppercase tracking-tight">Recomendado por Firmas Globales</span>
+                                <span className="px-2 py-0.5 bg-rose-50 border border-rose-100 rounded text-[9px] font-bold text-rose-700 uppercase tracking-tight">Enfoque Basado en Riesgo</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Fila 2: Criterio de Selección */}
+                    <div>
+                        <div className="flex items-center text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">
+                            Criterio de Selección 
+                            <i className="fas fa-info-circle text-blue-500 ml-2"></i>
+                        </div>
+                        <div className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-700 font-medium text-xs leading-relaxed shadow-inner">
+                            {samplingParams.nonStatistical?.criteria || "Muestreo Inteligente Multivariable: Selección de ítems que presentan simultáneamente múltiples factores de riesgo (Score Combinado > 2)."}
+                        </div>
+                    </div>
+
+                    {/* Fila 3: Justificación */}
+                    <div>
+                        <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">
+                            Justificación del Muestreo (Requerido)
+                        </div>
+                        <div className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-slate-700 font-medium text-xs leading-relaxed shadow-inner">
+                            {samplingParams.nonStatistical?.justification || "Enfoque basado en riesgo acumulado: Se priorizan partidas que son a la vez atípicas, redondas y/o duplicadas, maximizando la efectividad de la muestra."}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* II. PANEL DE RESULTADOS POSTERIORES (GRÁFICOS - IMAGEN 2) */}
+            <div className="mb-10">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">II. Resultados Posteriores al Muestreo (Visualización)</h3>
+                
+                {samplingMethod === SamplingMethod.NonStatistical ? (
+                    <div id="forensic-charts-dashboard" className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-slate-50 p-4 rounded-3xl border border-slate-200">
+                        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex flex-col h-[380px]">
+                            <h3 className="font-black text-slate-800 uppercase tracking-[0.2em] text-[10px] mb-6">
+                                <i className="fas fa-chart-bar mr-2 text-blue-500"></i> Distribución de Anomalías por Categoría
+                            </h3>
+                            <div className="flex-grow">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={advancedRiskMetrics} layout="vertical" margin={{left: 10, right: 50, top: 10, bottom: 10}}>
-                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                                        <XAxis type="number" hide />
-                                        <YAxis dataKey="name" type="category" width={100} style={{fontSize: '11px', fontWeight: '600', fill: '#475569'}} />
-                                        <RechartsTooltip content={<CustomBarTooltip />} cursor={{fill: '#f8fafc'}} />
-                                        <Bar dataKey="totalImpact" name="Risk Score" radius={[0, 4, 4, 0]} barSize={24} onClick={(data) => { setInsightFilter(data.name); setActiveModal('criticalItems'); }}>
-                                            {advancedRiskMetrics.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={BAR_COLORS[entry.name] || '#94a3b8'} />
+                                    <BarChart data={summaryChartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                        <XAxis dataKey="label" stroke="#94a3b8" fontSize={10} tick={{fill: '#64748b'}} />
+                                        <YAxis stroke="#94a3b8" fontSize={10} />
+                                        <Tooltip cursor={{fill: '#f8fafc'}} />
+                                        <Bar dataKey="count" radius={[4, 4, 0, 0]} barSize={35}>
+                                            <LabelList dataKey="count" position="top" fill="#64748b" fontSize={10} />
+                                            {summaryChartData.map((entry, index) => (
+                                                <Cell key={`cell-${index}`} fill={entry.color} />
                                             ))}
                                         </Bar>
                                     </BarChart>
                                 </ResponsiveContainer>
                             </div>
-                            {getInterpretationText()}
+                        </div>
+
+                        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex flex-col h-[380px]">
+                            <h3 className="font-black text-slate-800 uppercase tracking-[0.2em] text-[10px] mb-6">
+                                <i className="fas fa-bullseye mr-2 text-purple-500"></i> Matriz de Priorización (Frecuencia vs Severidad)
+                            </h3>
+                            <div className="flex-grow">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <ScatterChart margin={{ top: 20, right: 30, bottom: 0, left: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                        <XAxis type="number" dataKey="count" name="Frecuencia" stroke="#94a3b8" fontSize={10} domain={[0, maxCountForDomain]} />
+                                        <YAxis type="number" dataKey="severity" name="Severidad" stroke="#94a3b8" fontSize={10} domain={[0, 100]} />
+                                        <ZAxis type="number" range={[150, 400]} />
+                                        <Tooltip content={<CustomScatterTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                                        <ReferenceArea x1={0} x2={maxCountForDomain} y1={50} y2={100} fill="#fee2e2" fillOpacity={0.15} />
+                                        <ReferenceLine y={50} stroke="#cbd5e1" strokeDasharray="3 3" label={{ value: 'Prioridad Alta', fill: '#94a3b8', fontSize: 9 }} />
+                                        {summaryChartData.map((entry, index) => (
+                                            <Scatter key={index} name={entry.label} data={[entry]} fill={entry.color}>
+                                                <LabelList dataKey="count" position="top" offset={8} style={{ fill: entry.color, fontSize: '10px', fontWeight: 'bold' }} />
+                                            </Scatter>
+                                        ))}
+                                    </ScatterChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div id="main-risk-chart-container" className="grid grid-cols-1 lg:grid-cols-3 gap-8 bg-slate-50 p-4 rounded-3xl border border-slate-200">
+                        <div className="lg:col-span-2 bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex flex-col min-h-[400px]">
+                            <h3 className="font-black text-slate-800 uppercase tracking-[0.2em] text-[10px] mb-6 flex items-center">
+                                <i className="fas fa-chart-bar mr-2 text-blue-500"></i> Análisis de Riesgo y Cobertura Estadística
+                            </h3>
+                            <div className="flex-grow">
+                                <RiskChart upperErrorLimit={currentResults.sampleSize} tolerableError={currentResults.sampleSize * 1.2} method={samplingMethod} />
+                            </div>
                         </div>
                     </div>
                 )}
+            </div>
 
-                {!isNonStatistical && (
-                    <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 h-80" ref={chartRef}>
-                        <RiskChart upperErrorLimit={currentResults.upperErrorLimit || 0} tolerableError={samplingMethod === 'attribute' ? (samplingParams.attribute.ET * currentResults.sampleSize / 100) : samplingParams.mus.TE} method={samplingMethod} />
+            {/* III. PANEL DE RESULTADOS Y KPIs (IMAGEN 3) */}
+            <div className="mb-10">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-4">III. Papel de Trabajo Final (Muestra Alcanzada)</h3>
+                <div id="results-kpis-panel" className="grid grid-cols-1 md:grid-cols-3 gap-8 bg-slate-50/50 p-4 rounded-3xl">
+                    <div onClick={() => setActiveModal('sample_size')} className="cursor-pointer bg-slate-900 text-white p-8 rounded-3xl shadow-2xl relative overflow-hidden transition-all group border border-slate-800">
+                        <p className="font-bold opacity-60 uppercase tracking-widest text-[10px] mb-1">Muestra Alcanzada (n)</p>
+                        <h3 className="text-6xl font-black">{currentResults.sampleSize}</h3>
                     </div>
-                )}
-
-                <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden flex flex-col h-[600px]">
-                    <div className="px-6 py-5 border-b border-gray-200 bg-gray-50 flex justify-between items-center z-10">
-                         <h3 className="text-lg font-bold text-gray-800">Detalle de Elementos ({currentResults.sample.length})</h3>
+                    <div onClick={() => setActiveModal('criteria_applied')} className="cursor-pointer bg-white p-8 rounded-3xl shadow-lg border border-slate-100 flex flex-col justify-center transition-all group">
+                        <p className="font-bold text-slate-400 uppercase tracking-widest text-[10px] mb-1">Criterio Aplicado</p>
+                        <h3 className="text-3xl font-black text-blue-600 leading-tight">
+                            {samplingMethod === SamplingMethod.NonStatistical ? "Juicio Profesional" : `${confidenceValue}% Confianza`}
+                        </h3>
                     </div>
-                    <div className="overflow-y-auto flex-grow custom-scrollbar">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-100 sticky top-0 z-10 shadow-sm">
-                                <tr>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase">ID</th>
-                                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-600 uppercase">Valor</th>
-                                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-600 uppercase">Prioridad</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-slate-100">
-                                {currentResults.sample.map((item, index) => (
-                                    <tr key={index} className="hover:bg-blue-50 transition-colors">
-                                        <td className="px-6 py-3 text-sm font-bold text-gray-700">{item.id}</td>
-                                        <td className="px-6 py-3 text-sm text-right font-mono">${formatMoney(item.value)}</td>
-                                        <td className="px-6 py-3">
-                                            <div className="flex flex-wrap gap-2 items-center">
-                                                {((item.risk_score && item.risk_score >= 1) || (item.risk_flag && item.risk_flag.includes('Significativa'))) && (
-                                                    <span className="text-[10px] font-bold px-2 py-1 rounded bg-orange-50 text-orange-600 border border-orange-200">
-                                                        <i className="fas fa-fire mr-1"></i> {item.risk_score?.toFixed(1) || 'Alto'}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    <div onClick={() => setActiveModal('seed_replication')} className="cursor-pointer bg-white p-8 rounded-3xl shadow-lg border border-slate-100 flex flex-col justify-center transition-all group">
+                        <p className="font-bold text-slate-400 uppercase tracking-widest text-[10px] mb-1">Semilla Replicable</p>
+                        <h3 className="text-4xl font-mono font-bold text-slate-800">{generalParams.seed}</h3>
                     </div>
                 </div>
             </div>
 
-            <Modal isOpen={activeModal === 'sampleSize'} onClose={() => setActiveModal(null)} title="Desglose de Cálculo (n)">{getSampleSizeModalContent()}</Modal>
-            <Modal isOpen={activeModal === 'confidence'} onClose={() => setActiveModal(null)} title="Nivel de Confianza (NC)">{getConfidenceModalContent()}</Modal>
-            <Modal isOpen={activeModal === 'seed'} onClose={() => setActiveModal(null)} title="Mecanismo de Semilla (Seed)">{getSeedModalContent()}</Modal>
-            <Modal isOpen={activeModal === 'errorProjection'} onClose={() => setActiveModal(null)} title="Proyección de Error">{getErrorProjectionModalContent()}</Modal>
-            <Modal isOpen={activeModal === 'criticalItems'} onClose={() => { setActiveModal(null); setInsightFilter(null); }} title={insightFilter ? `Detalle: ${insightFilter}` : "Ítems Críticos"}>{getCriticalItemsModalContent()}</Modal>
-            <Modal isOpen={activeModal === 'sequentialExpansion'} onClose={() => setActiveModal(null)} title="Muestreo Secuencial">{getSequentialExpansionModalContent()}</Modal>
+            {/* IV. LISTADO DE MUESTRA */}
+            <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
+                <div className="px-8 py-5 bg-slate-900 border-b border-slate-800 flex justify-between items-center">
+                    <h3 className="font-black text-white uppercase tracking-[0.2em] text-[10px] flex items-center">
+                        <i className="fas fa-list-check mr-2 text-cyan-400"></i> Listado de Muestra (Papel de Trabajo NIA)
+                    </h3>
+                </div>
+                <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
+                    <table className="min-w-full divide-y divide-slate-100">
+                        <thead className="bg-slate-50 sticky top-0 z-10">
+                            <tr>
+                                <th className="px-8 py-5 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest">ID Registro</th>
+                                <th className="px-8 py-5 text-right text-[10px] font-black text-slate-500 uppercase tracking-widest">Monto</th>
+                                <th className="px-8 py-5 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest">Fase</th>
+                                <th className="px-8 py-5 text-left text-[10px] font-black text-slate-500 uppercase tracking-widest">Justificación de Riesgo</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-slate-50">
+                            {currentResults.sample.map((item, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-8 py-4 text-xs font-mono font-black text-slate-600">{item.id}</td>
+                                    <td className="px-8 py-4 text-xs text-right font-mono text-slate-900 font-black">${formatMoney(item.value)}</td>
+                                    <td className="px-8 py-4">
+                                        <span className={`px-2 py-1 text-[9px] font-black rounded-lg border uppercase tracking-wider ${item.is_pilot_item ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
+                                            {item.is_pilot_item ? 'FASE 1' : 'FASE 2'}
+                                        </span>
+                                    </td>
+                                    <td className="px-8 py-4 text-[10px] font-medium text-slate-400 italic">
+                                        {item.risk_justification || "Validado bajo metodología NIA 530."}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* MODALES TÉCNICOS */}
+            <Modal isOpen={activeModal === 'sample_size'} onClose={() => setActiveModal(null)} title="Análisis del Tamaño de Muestra (n)">
+                <div className="space-y-4">
+                    <RichInfoCard type="definition" title="Interpretación Técnica">
+                        Representa el número de unidades de muestreo seleccionadas para su examen exhaustivo. El tamaño se ha determinado considerando el Riesgo de Muestreo y la variabilidad de la población.
+                    </RichInfoCard>
+                    <RichInfoCard type="standard" title="Conformidad NIA 530">
+                        El tamaño garantiza que el error proyectado en la población no exceda el Error Tolerable configurado para esta auditoría.
+                    </RichInfoCard>
+                </div>
+            </Modal>
+
+            <Modal isOpen={activeModal === 'criteria_applied'} onClose={() => setActiveModal(null)} title="Enfoque: Juicio Profesional">
+                <div className="space-y-4">
+                    <RichInfoCard type="justification" title="¿Qué es el Juicio Profesional?">
+                        Es la aplicación de la formación práctica y experiencia relevante para tomar decisiones informadas sobre la selección de la muestra cuando los métodos puramente aleatorios no son suficientes para cubrir riesgos específicos.
+                    </RichInfoCard>
+                </div>
+            </Modal>
+
+            <Modal isOpen={activeModal === 'seed_replication'} onClose={() => setActiveModal(null)} title="Trazabilidad y Replicabilidad">
+                <div className="space-y-4">
+                    <RichInfoCard type="formula" title="Importancia de la Semilla (Seed)">
+                        La semilla [{generalParams.seed}] garantiza que la selección sea reproducible. Cualquier revisor de calidad que utilice este valor obtendrá exactamente los mismos registros.
+                    </RichInfoCard>
+                </div>
+            </Modal>
         </div>
     );
 };

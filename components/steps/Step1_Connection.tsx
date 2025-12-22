@@ -99,13 +99,15 @@ const Step1Connection: React.FC<Props> = ({ appState, setAppState, onSave }) => 
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-8">
                 <div>
                     <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Conexión de Datos</h2>
-                    <p className="text-slate-500 mt-2 text-lg">Configuración y mapeo del origen de datos para la auditoría.</p>
+                    <p className="text-slate-500 mt-2 text-lg">Configuración y mapeo del origen de datos.</p>
                 </div>
                 <button 
                     onClick={onSave} 
-                    className="mt-4 md:mt-0 text-sm font-semibold text-slate-500 hover:text-blue-700 transition-colors uppercase tracking-wider flex items-center group"
+                    className="mt-4 md:mt-0 px-6 py-3 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-700 uppercase tracking-widest hover:text-blue-800 hover:border-blue-500 hover:shadow-xl transition-all transform hover:-translate-y-1 group flex items-center shadow-md"
                 >
-                    <i className="fas fa-arrow-left mr-2 transform group-hover:-translate-x-1 transition-transform"></i>
+                    <div className="bg-slate-100 group-hover:bg-blue-50 p-2 rounded-lg mr-3 transition-colors">
+                        <i className="fas fa-chevron-left text-blue-600 transform group-hover:-translate-x-1 transition-transform"></i>
+                    </div>
                     Volver al Panel
                 </button>
             </div>
@@ -113,7 +115,6 @@ const Step1Connection: React.FC<Props> = ({ appState, setAppState, onSave }) => 
             <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
                 {/* Server Status Panel */}
                 <div className="bg-slate-900 p-8 relative overflow-hidden">
-                    {/* Decorative Background Elements */}
                     <div className="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-blue-600 rounded-full blur-3xl opacity-20"></div>
                     <div className="absolute bottom-0 left-0 -mb-10 -ml-10 w-40 h-40 bg-cyan-500 rounded-full blur-3xl opacity-10"></div>
                     
@@ -129,18 +130,8 @@ const Step1Connection: React.FC<Props> = ({ appState, setAppState, onSave }) => 
                                         <i className="fas fa-circle text-[8px] text-green-400 mr-2 animate-pulse"></i>
                                         Conectado
                                     </span>
-                                    <span className="text-xs text-slate-400 font-mono hidden sm:inline-block">
-                                        {SUPABASE_CONFIG.url.replace('https://', '')}
-                                    </span>
                                 </div>
                             </div>
-                        </div>
-                        <div className="text-right hidden md:block">
-                            <p className="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Usuario Activo</p>
-                            <p className="text-white font-mono bg-slate-800 px-3 py-1 rounded border border-slate-700">
-                                <i className="fas fa-user-shield mr-2 text-blue-400"></i>
-                                {SUPABASE_CONFIG.user}
-                            </p>
                         </div>
                     </div>
                 </div>
@@ -148,121 +139,63 @@ const Step1Connection: React.FC<Props> = ({ appState, setAppState, onSave }) => 
                 {/* Form Section */}
                 <div className="p-8 md:p-10">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12">
-                        {/* Left Column: Instructions */}
                         <div className="md:col-span-2 mb-2">
                              <h3 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-2 mb-4">
                                 Mapeo de Entidad
                              </h3>
                         </div>
 
-                        {/* Table Input */}
                         <div className="group">
                             <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center">
                                 Nombre de Tabla / Vista
                                 <span className="ml-2"><InfoHelper title={ASSISTANT_CONTENT.tablaVista.title} content={ASSISTANT_CONTENT.tablaVista.content} /></span>
                             </label>
-                            <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <i className="fas fa-table text-slate-400 group-focus-within:text-blue-500 transition-colors"></i>
-                                </div>
-                                <input 
-                                    type="text" 
-                                    name="table" 
-                                    value={appState.connection.table} 
-                                    onChange={handleChange} 
-                                    className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm bg-slate-50 focus:bg-white text-slate-700 font-medium placeholder-slate-400" 
-                                    placeholder="Ej. libro_mayor_2024" 
-                                />
-                            </div>
-                            <p className="mt-1.5 text-xs text-slate-400">Nombre exacto de la tabla en la base de datos.</p>
+                            <input 
+                                type="text" 
+                                name="table" 
+                                value={appState.connection.table} 
+                                onChange={handleChange} 
+                                className="block w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition-all shadow-sm bg-slate-50 text-slate-700" 
+                                placeholder="Ej. libro_mayor_2024" 
+                            />
                         </div>
 
-                        {/* Spacer for layout balance if needed, or spans full width */}
-                        <div className="hidden md:block"></div>
-
-                        {/* ID Column Input */}
                         <div className="group">
                             <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center">
-                                Columna Identificador (PK)
+                                Columna ID Única
                                 <span className="ml-2"><InfoHelper title={ASSISTANT_CONTENT.columnaId.title} content={ASSISTANT_CONTENT.columnaId.content} /></span>
                             </label>
-                            <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <i className="fas fa-fingerprint text-slate-400 group-focus-within:text-blue-500 transition-colors"></i>
-                                </div>
-                                <input 
-                                    type="text" 
-                                    name="idColumn" 
-                                    value={appState.connection.idColumn} 
-                                    onChange={handleChange} 
-                                    className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all shadow-sm bg-slate-50 focus:bg-white text-slate-700 font-medium placeholder-slate-400" 
-                                    placeholder="Ej. id_transaccion" 
-                                />
-                            </div>
-                        </div>
-
-                        {/* Value Column Input */}
-                        <div className="group">
-                            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center">
-                                Columna Valor Monetario
-                                <span className="ml-2"><InfoHelper title={ASSISTANT_CONTENT.columnaValor.title} content={ASSISTANT_CONTENT.columnaValor.content} /></span>
-                            </label>
-                            <div className="relative">
-                                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <i className="fas fa-coins text-slate-400 group-focus-within:text-amber-500 transition-colors"></i>
-                                </div>
-                                <input 
-                                    type="text" 
-                                    name="valueColumn" 
-                                    value={appState.connection.valueColumn} 
-                                    onChange={handleChange} 
-                                    className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all shadow-sm bg-slate-50 focus:bg-white text-slate-700 font-medium placeholder-slate-400" 
-                                    placeholder="Ej. monto_total" 
-                                />
-                            </div>
+                            <input 
+                                type="text" 
+                                name="idColumn" 
+                                value={appState.connection.idColumn} 
+                                onChange={handleChange} 
+                                className="block w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition-all shadow-sm bg-slate-50 text-slate-700" 
+                                placeholder="Ej. id_transaccion" 
+                            />
                         </div>
                     </div>
 
-                    {/* Error Message */}
                     {error && (
-                        <div className="mt-8 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-md animate-pulse">
-                            <div className="flex">
-                                <div className="flex-shrink-0">
-                                    <i className="fas fa-exclamation-circle text-red-500"></i>
-                                </div>
-                                <div className="ml-3">
-                                    <p className="text-sm text-red-700 font-medium">{error}</p>
-                                </div>
-                            </div>
+                        <div className="mt-8 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-md">
+                            <p className="text-sm text-red-700 font-medium">{error}</p>
                         </div>
                     )}
                     
-                    {/* Actions */}
                     <div className="mt-10 pt-6 border-t border-slate-100 flex justify-end items-center space-x-4">
                          <button 
                             onClick={onSave} 
-                            className="px-6 py-3 rounded-lg border border-slate-300 text-slate-600 font-bold text-sm hover:bg-slate-50 hover:text-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400"
+                            className="px-6 py-3 bg-white border border-slate-200 rounded-xl text-xs font-black text-slate-400 uppercase tracking-widest hover:text-slate-700 hover:border-slate-300 transition-all shadow-sm"
                         >
                             Cancelar
                         </button>
                         <button 
                             onClick={handleValidateAndSave} 
                             disabled={isLoading} 
-                            className="relative overflow-hidden group px-8 py-3 rounded-lg bg-gradient-to-r from-blue-700 to-slate-800 text-white font-bold text-sm shadow-lg hover:shadow-xl hover:from-blue-600 hover:to-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-600 transition-all transform hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed"
+                            className="px-8 py-3 rounded-xl bg-slate-900 text-white font-black text-xs uppercase tracking-widest shadow-lg hover:bg-slate-800 transition-all transform hover:-translate-y-0.5 disabled:opacity-70"
                         >
-                            <span className="relative z-10 flex items-center">
-                                {isLoading ? (
-                                   <>
-                                   <i className="fas fa-circle-notch fa-spin mr-2"></i>
-                                   Verificando...
-                                   </>
-                                ) : (
-                                   <>
-                                   <i className="fas fa-check-circle mr-2 text-cyan-400 group-hover:text-white transition-colors"></i>
-                                   Validar y Guardar
-                                   </>
-                                )}
-                            </span>
+                            {isLoading ? <i className="fas fa-spinner fa-spin mr-2"></i> : <i className="fas fa-check-circle mr-2 text-cyan-400"></i>}
+                            Validar y Guardar
                         </button>
                     </div>
                 </div>
