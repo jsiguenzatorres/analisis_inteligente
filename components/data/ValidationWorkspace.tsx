@@ -141,8 +141,14 @@ const ValidationWorkspace: React.FC<Props> = ({ populationId, onValidationComple
                     <h2 className="text-3xl font-extrabold text-slate-800 tracking-tight">Validación de Cuadratura</h2>
                     <p className="text-slate-500 mt-1">Confirme que la integridad y distribución de los datos sean correctas.</p>
                  </div>
-                 <button onClick={onCancel} className="text-sm font-bold text-slate-500 hover:text-blue-600 transition-colors flex items-center uppercase tracking-wide">
-                    <i className="fas fa-times mr-2"></i>Cancelar
+                 <button 
+                    onClick={onCancel} 
+                    className="px-5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-700 uppercase tracking-widest hover:text-red-600 hover:border-red-500 hover:shadow-lg transition-all transform hover:-translate-y-1 group flex items-center shadow-md"
+                >
+                    <div className="bg-slate-100 group-hover:bg-red-50 p-2 rounded-lg mr-3 transition-colors">
+                        <i className="fas fa-times text-slate-500 group-hover:text-red-500 transition-colors"></i>
+                    </div>
+                    Cancelar
                 </button>
             </div>
             

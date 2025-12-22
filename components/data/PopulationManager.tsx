@@ -21,39 +21,18 @@ const PopulationManager: React.FC<Props> = ({ onPopulationSelected, onAddNew }) 
     const fetchPopulations = async () => {
         setLoading(true);
         setError(null);
-        try {
-            const { data, error: sbError } = await supabase
-                .from('audit_populations')
-                .select('*')
-                .order('created_at', { ascending: false });
+        const { data, error } = await supabase
+            .from('audit_populations')
+            .select('*')
+            .order('created_at', { ascending: false });
 
-            if (sbError) {
-                console.error('Error fetching populations:', sbError);
-                
-                // Extraer mensaje de error de forma segura para evitar [object Object]
-                const errorMessage = sbError.message || 
-                                    (typeof sbError === 'object' ? JSON.stringify(sbError) : String(sbError));
-                
-                // Manejo específico de tablas no creadas (error común post-despliegue)
-                if (sbError.code === '42P01') {
-                    setError('Estructura faltante: La tabla "audit_populations" no existe en su base de datos. Por favor, cree las tablas usando el SQL Editor en el panel de Supabase.');
-                } else if (sbError.code === 'PGRST301' || sbError.code === '401') {
-                    setError('Error de Autenticación: La API Key de Supabase es inválida o ha expirado. Revise sus variables de entorno en Vercel.');
-                } else {
-                    setError(`Error de Supabase: ${errorMessage} (Código: ${sbError.code || 'N/A'}). ${sbError.hint || ''}`);
-                }
-            } else {
-                setPopulations((data as AuditPopulation[]) || []);
-            }
-        } catch (err: any) {
-            console.error('Unexpected error:', err);
-            // Manejo defensivo de excepciones inesperadas
-            const msg = err instanceof Error ? err.message : 
-                        (typeof err === 'object' ? JSON.stringify(err) : String(err));
-            setError(`Error inesperado del sistema: ${msg}`);
-        } finally {
-            setLoading(false);
+        if (error) {
+            console.error('Error fetching populations:', error);
+            setError('No se pudieron cargar las poblaciones. Verifique la conexión con la base de datos.');
+        } else {
+            setPopulations(data as AuditPopulation[]);
         }
+        setLoading(false);
     };
 
     const handleDelete = async (id: string, fileName: string) => {
@@ -62,21 +41,21 @@ const PopulationManager: React.FC<Props> = ({ onPopulationSelected, onAddNew }) 
         }
 
         try {
-            const { error: deleteError } = await supabase
+            // Nota: Se asume que la base de datos tiene "ON DELETE CASCADE" en las filas hijas (audit_data_rows).
+            // Si no, habría que borrar las filas primero.
+            const { error } = await supabase
                 .from('audit_populations')
                 .delete()
                 .eq('id', id);
 
-            if (deleteError) {
-                const errorMsg = deleteError.message || JSON.stringify(deleteError);
-                throw new Error(errorMsg);
-            }
-            
+            if (error) throw error;
+
+            // Actualizar estado local eliminando el item
             setPopulations(prev => prev.filter(p => p.id !== id));
             
         } catch (err: any) {
             console.error("Error deleting:", err);
-            alert("Error al eliminar el registro: " + (err.message || "Error desconocido"));
+            alert("Error al eliminar el registro: " + err.message);
         }
     };
 
@@ -117,30 +96,9 @@ const PopulationManager: React.FC<Props> = ({ onPopulationSelected, onAddNew }) 
                      </div>
                 )}
                 {error && (
-                    <div className="p-6 bg-red-50 rounded-lg border border-red-200 flex items-start text-red-700 mb-4 animate-fade-in">
-                        <i className="fas fa-exclamation-triangle text-2xl mr-4 mt-1"></i>
-                        <div className="flex-1">
-                            <p className="font-bold text-red-800">Error de Conexión Detectado</p>
-                            <div className="text-sm mt-1 bg-white/50 p-2 rounded border border-red-100 font-mono">
-                                {error}
-                            </div>
-                            <div className="mt-4 flex space-x-4">
-                                <button 
-                                    onClick={fetchPopulations} 
-                                    className="text-xs font-bold uppercase tracking-widest bg-red-600 text-white px-3 py-1.5 rounded hover:bg-red-700 transition-colors"
-                                >
-                                    Reintentar conexión
-                                </button>
-                                <a 
-                                    href="https://supabase.com/dashboard" 
-                                    target="_blank" 
-                                    rel="noreferrer" 
-                                    className="text-xs font-bold uppercase tracking-widest text-red-600 hover:underline flex items-center"
-                                >
-                                    Ir a Supabase <i className="fas fa-external-link-alt ml-1"></i>
-                                </a>
-                            </div>
-                        </div>
+                    <div className="p-6 bg-red-50 rounded-lg border border-red-100 flex items-center text-red-700">
+                        <i className="fas fa-exclamation-circle text-2xl mr-4"></i>
+                        <span>{error}</span>
                     </div>
                 )}
                 {!loading && !error && populations.length === 0 && (
@@ -195,7 +153,7 @@ const PopulationManager: React.FC<Props> = ({ onPopulationSelected, onAddNew }) 
                                                 
                                                 <button 
                                                     onClick={() => onPopulationSelected(pop)} 
-                                                    disabled={pop.status !== 'validado' && pop.status !== 'pendiente_validacion'}
+                                                    disabled={pop.status !== 'validado'}
                                                     className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-xs font-bold text-white bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 disabled:from-slate-300 disabled:to-slate-400 disabled:cursor-not-allowed transition-all transform hover:-translate-y-0.5 uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500"
                                                 >
                                                     Seleccionar
